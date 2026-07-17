@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VideoEnglish — 视频库</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel hero">
+      <h1>本地桌面英语学习系统</h1>
+      <p>只做三件事：视频学习、电子书阅读、词书导入。遇到不会的词，统一进入同一个 FSRS 生词池科学记忆。</p>
+      <div class="desktop-module-grid">
+        <a class="desktop-module-card" href="#videoQuickStart">
+          <div class="desktop-module-icon">🎬</div>
+          <h3>视频学习</h3>
+          <p>贴入 YouTube / B 站链接，左侧播放器，右侧双语字幕，点词即查、一键收藏。</p>
+        </a>
+        <a class="desktop-module-card" href="/read">
+          <div class="desktop-module-icon">📖</div>
+          <h3>电子书阅读</h3>
+          <p>本地导入 EPUB / PDF / TXT，章节阅读、双语切换、书签批注、点词入卡一气呵成。</p>
+        </a>
+        <a class="desktop-module-card" href="/wordbooks">
+          <div class="desktop-module-icon">📚</div>
+          <h3>词书与统一生词池</h3>
+          <p>导入 CET4 / CET6 / IELTS / TOEFL 模板词表，和视频、阅读生词统一调度复习。</p>
+        </a>
+      </div>
+    </section>
+
+    <section id="videoQuickStart" class="panel">
+      <h2>快速开始视频学习</h2>
+      <p class="hero-subcopy">粘贴链接后先进入可学习状态，再后台补译文；有字幕的内容几秒内就能开始。</p>
+      <div class="url-input-row">
+        <input id="videoUrl" placeholder="粘贴 YouTube 或 Bilibili 链接..." />
+        <button id="loadBtn" class="btn-primary">添加视频</button>
+        <button id="biliLoginBtn" class="btn-secondary" type="button">B站登录</button>
+      </div>
+      <div id="statusMsg" class="status-msg"></div>
+    </section>
+
+    <section class="panel">
+      <h2>最近视频 <span id="videoListCount" class="badge"></span></h2>
+      <div id="videoList" class="video-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>本地备份与迁移</h2>
+      <p class="hero-subcopy">建议定期导出整库备份。整包备份包含 SQLite 数据库、生词 JSON 和词书 JSON，适合迁移到新电脑或做长期归档。</p>
+      <div class="backup-actions">
+        <a class="btn-primary" href="/api/app/backup">下载整库备份</a>
+        <a class="btn-secondary" href="/api/app/export/vocab">导出生词 JSON</a>
+      </div>
+    </section>
+  </div>
+
+  <!-- B站登录弹窗（复用） -->
+  <div id="biliLoginModal" class="modal hidden">
+    <div class="modal-content bili-login-content">
+      <button class="modal-close" onclick="closeBiliLoginModal()">✕</button>
+      <h2>B站扫码登录</h2>
+      <p class="bili-login-desc">硬字幕/无CC 视频需登录后才能下载音频做语音识别。</p>
+      <div id="biliQrcodeArea" class="bili-qrcode-area"></div>
+      <div id="biliLoginStatus" class="bili-login-status"></div>
+      <button id="biliGenerateBtn" class="btn-primary">生成二维码</button>
+    </div>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/bili-login.js"></script>
+  <script src="/static/js/library.js"></script>
+</body>
+</html>

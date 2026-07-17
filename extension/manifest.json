@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "VideoEnglish — 视频 & 阅读学英语",
+  "version": "1.1.0",
+  "description": "YouTube/B站 视频学词 + 任意英文网页阅读 + FSRS 科学复习",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.bilibili.com/*",
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "VideoEnglish 设置"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["lib/api.js", "lib/panel.js", "content/youtube.js"],
+      "css": ["styles/panel.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.bilibili.com/video/*"],
+      "js": ["lib/api.js", "lib/panel.js", "content/bilibili.js"],
+      "css": ["styles/panel.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "exclude_matches": [
+        "https://www.youtube.com/*",
+        "https://www.bilibili.com/*",
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*"
+      ],
+      "js": ["lib/api.js", "lib/reading-panel.js", "content/web-reader.js"],
+      "css": ["styles/panel.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

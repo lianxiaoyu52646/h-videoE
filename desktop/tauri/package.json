@@ -1,0 +1,12 @@
+{
+  "name": "videoenglish-desktop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev --config src-tauri/tauri.conf.json",
+    "build": "tauri build --config src-tauri/tauri.conf.json"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "latest"
+  }
+}

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>登录 — VideoEnglish</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel hero">
+      <h1>账号登录</h1>
+      <p>本地模式可直接进入；关闭本地自动用户后，请先注册或登录，再继续使用 Web 与浏览器扩展。</p>
+      <div class="reading-input-tabs">
+        <button type="button" class="tab-btn auth-switch-btn active" data-mode="login">登录</button>
+        <button type="button" class="tab-btn auth-switch-btn" data-mode="register">注册</button>
+      </div>
+      <div id="authStatus" class="status-msg"></div>
+    </section>
+
+    <section class="panel auth-panel" data-mode="login">
+      <h2>登录</h2>
+      <form id="loginForm" class="notes-add">
+        <input name="email" type="email" placeholder="邮箱" required />
+        <input name="password" type="password" placeholder="密码" required />
+        <button class="btn-primary" type="submit">登录</button>
+      </form>
+    </section>
+
+    <section class="panel auth-panel hidden" data-mode="register">
+      <h2>注册</h2>
+      <form id="registerForm" class="notes-add">
+        <input name="display_name" type="text" placeholder="显示名称（可选）" />
+        <input name="email" type="email" placeholder="邮箱" required />
+        <input name="password" type="password" placeholder="密码（至少 6 位）" required />
+        <button class="btn-primary" type="submit">注册并登录</button>
+      </form>
+    </section>
+  </div>
+
+  <script src="/static/js/login.js"></script>
+</body>
+</html>

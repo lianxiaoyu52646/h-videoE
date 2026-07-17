@@ -1,0 +1,1746 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import datetime, timezone
+from typing import Iterable
+
+from sqlalchemy import or_
+from sqlmodel import Session, func, select
+
+from app import models, security
+from app.services import fsrs_scheduler
+
+
+def _utc_now() -> datetime:
+    return datetime.utcnow()
+
+
+def _scoped_user_id(user_id: int | None = None) -> int | None:
+    if user_id is not None:
+        return user_id
+    return security.get_current_user_id(required=False)
+
+
+def _required_user_id(user_id: int | None = None) -> int:
+    return _scoped_user_id(user_id) or 1
+
+
+def _normalize_word(word: str) -> str:
+    return (word or "").strip().lower()
+
+
+def _apply_user_scope(statement, model, user_id: int | None):
+    uid = _scoped_user_id(user_id)
+    if uid is not None and hasattr(model, "user_id"):
+        statement = statement.where(model.user_id == uid)
+    return statement
+
+
+def _apply_active_wordbook_filter(statement):
+    return statement.where(models.WordBook.deleted_at.is_(None))
+
+
+def _apply_active_reading_filter(statement):
+    return statement.where(models.ReadingDocument.deleted_at.is_(None))
+
+
+def _is_due(due: datetime, now: datetime | None = None) -> bool:
+    now = now or _utc_now()
+    if due.tzinfo is not None:
+        due = due.astimezone(timezone.utc).replace(tzinfo=None)
+    return due <= now
+
+
+def _recompute_vocab_summary(session: Session, card: models.VocabItem) -> None:
+    ctx = session.exec(
+        select(models.VocabContext)
+        .where(models.VocabContext.vocab_id == card.id)
+        .order_by(models.VocabContext.created_at.desc())
+    ).first()
+    if ctx:
+        card.source_platform = ctx.source_platform
+        card.source_video_id = ctx.source_video_id
+        card.source_url = ctx.source_url or None
+        card.source_title = ctx.source_title
+        card.sentence = ctx.sentence
+        card.sentence_translation = ctx.sentence_translation
+        card.timestamp = ctx.timestamp
+    session.add(card)
+
+
+def _ensure_vocab_context(
+    session: Session,
+    card: models.VocabItem,
+    data: dict,
+    user_id: int | None = None,
+) -> models.VocabContext | None:
+    source_platform = (data.get("source_platform") or "").strip()
+    source_video_id = (data.get("source_video_id") or "").strip() or None
+    source_url = (data.get("source_url") or "").strip()
+    source_title = (data.get("source_title") or "").strip() or None
+    sentence = (data.get("sentence") or "").strip() or None
+    sentence_translation = (data.get("sentence_translation") or "").strip() or None
+    timestamp = data.get("timestamp")
+
+    if not source_platform and not sentence and not source_url and not source_video_id:
+        return None
+
+    existing = session.exec(
+        select(models.VocabContext).where(
+            models.VocabContext.vocab_id == card.id,
+            models.VocabContext.source_platform == source_platform,
+            models.VocabContext.source_video_id == source_video_id,
+            models.VocabContext.sentence == sentence,
+            models.VocabContext.timestamp == timestamp,
+        )
+    ).first()
+    if existing:
+        if source_url:
+            existing.source_url = source_url
+        if source_title:
+            existing.source_title = source_title
+        if sentence_translation:
+            existing.sentence_translation = sentence_translation
+        session.add(existing)
+        return existing
+
+    ctx = models.VocabContext(
+        user_id=_required_user_id(user_id),
+        vocab_id=card.id,
+        source_platform=source_platform or "manual",
+        source_video_id=source_video_id,
+        source_url=source_url,
+        source_title=source_title,
+        sentence=sentence,
+        sentence_translation=sentence_translation,
+        timestamp=timestamp,
+    )
+    session.add(ctx)
+    return ctx
+
+
+def vocab_to_read(session: Session, card: models.VocabItem) -> dict:
+    data = card.model_dump()
+    data["contexts_count"] = session.exec(
+        select(func.count(models.VocabContext.id)).where(models.VocabContext.vocab_id == card.id)
+    ).one()
+    data["review_count"] = session.exec(
+        select(func.count(models.ReviewLog.id)).where(models.ReviewLog.vocab_id == card.id)
+    ).one()
+    return data
+
+
+def vocab_to_read_many(session: Session, cards: list[models.VocabItem]) -> list[dict]:
+    """批量序列化生词卡：用两次聚合查询取代逐卡计数，避免 N+1。"""
+    if not cards:
+        return []
+    ids = [card.id for card in cards]
+
+    ctx_counts: dict[int, int] = dict(
+        session.exec(
+            select(models.VocabContext.vocab_id, func.count(models.VocabContext.id))
+            .where(models.VocabContext.vocab_id.in_(ids))
+            .group_by(models.VocabContext.vocab_id)
+        ).all()
+    )
+    review_counts: dict[int, int] = dict(
+        session.exec(
+            select(models.ReviewLog.vocab_id, func.count(models.ReviewLog.id))
+            .where(models.ReviewLog.vocab_id.in_(ids))
+            .group_by(models.ReviewLog.vocab_id)
+        ).all()
+    )
+
+    result: list[dict] = []
+    for card in cards:
+        data = card.model_dump()
+        data["contexts_count"] = ctx_counts.get(card.id, 0)
+        data["review_count"] = review_counts.get(card.id, 0)
+        result.append(data)
+    return result
+
+
+def get_video_by_url(session: Session, url: str, user_id: int | None = None):
+    stmt = select(models.Video).where(models.Video.url == url)
+    stmt = _apply_user_scope(stmt, models.Video, user_id)
+    return session.exec(stmt).first()
+
+
+def create_video(session: Session, url: str, source_info: dict, user_id: int | None = None):
+    video = models.Video(
+        user_id=_required_user_id(user_id),
+        url=url,
+        source=source_info.get("source", "generic"),
+        video_id=source_info.get("video_id"),
+        embed_url=source_info.get("embed_url"),
+        title=source_info.get("title"),
+        thumbnail=source_info.get("thumbnail"),
+    )
+    session.add(video)
+    session.commit()
+    session.refresh(video)
+    return video
+
+
+def get_video(session: Session, video_id: int, user_id: int | None = None):
+    stmt = select(models.Video).where(models.Video.id == video_id)
+    stmt = _apply_user_scope(stmt, models.Video, user_id)
+    return session.exec(stmt).first()
+
+
+def list_videos(session: Session, user_id: int | None = None):
+    stmt = select(models.Video).order_by(models.Video.created_at.desc())
+    stmt = _apply_user_scope(stmt, models.Video, user_id)
+    return session.exec(stmt).all()
+
+
+def count_subtitles(session: Session, video_id: int) -> int:
+    return session.exec(
+        select(func.count(models.Subtitle.id)).where(models.Subtitle.video_id == video_id)
+    ).one()
+
+
+def _video_learn_phase(status: str, subtitle_count: int) -> str:
+    if status == "done" and subtitle_count > 0:
+        return "reviewReady"
+    if status == "translating" and subtitle_count > 0:
+        return "translationStreaming"
+    if status == "ready" and subtitle_count > 0:
+        return "subtitleReady"
+    if status == "failed":
+        return "failed"
+    return "metadataReady"
+
+
+def video_to_read(session: Session, video: models.Video) -> dict:
+    data = video.model_dump()
+    data["progress"] = data.get("progress") or 0
+    data["status_message"] = data.get("status_message") or ""
+    data["duration_seconds"] = data.get("duration_seconds") or 0.0
+    data["subtitle_count"] = count_subtitles(session, video.id)
+    if data.get("subtitle_status") == "done" and data["subtitle_count"] == 0:
+        data["subtitle_status"] = "failed"
+        if not data["status_message"]:
+            data["status_message"] = "未能获取字幕"
+    if data.get("subtitle_status") == "done" and data["subtitle_count"] > 0:
+        data["progress"] = 100
+        if not data["status_message"]:
+            data["status_message"] = "完成，可以开始学习"
+    if data.get("subtitle_status") == "ready" and data["subtitle_count"] > 0:
+        data["progress"] = max(data["progress"], 80)
+        if not data["status_message"]:
+            data["status_message"] = "可以开始学习（翻译进行中）"
+    data["learn_phase"] = _video_learn_phase(
+        data.get("subtitle_status") or "pending",
+        data["subtitle_count"],
+    )
+    return data
+
+
+def create_subtitles(session: Session, video_id: int, segments: list[dict]):
+    items = [models.Subtitle(video_id=video_id, **seg) for seg in segments]
+    session.add_all(items)
+    session.commit()
+    return items
+
+
+def get_subtitles(session: Session, video_id: int):
+    return session.exec(
+        select(models.Subtitle)
+        .where(models.Subtitle.video_id == video_id)
+        .order_by(models.Subtitle.start)
+    ).all()
+
+
+def _find_vocab(session: Session, word: str, user_id: int | None = None):
+    normalized = _normalize_word(word)
+    stmt = select(models.VocabItem).where(models.VocabItem.word == normalized)
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    return session.exec(stmt).first()
+
+
+def find_vocab_by_word(session: Session, word: str, user_id: int | None = None):
+    return _find_vocab(session, word, user_id=user_id)
+
+
+def delete_vocab_card(session: Session, card: models.VocabItem) -> None:
+    for ctx in session.exec(
+        select(models.VocabContext).where(models.VocabContext.vocab_id == card.id)
+    ).all():
+        session.delete(ctx)
+    for log in session.exec(
+        select(models.ReviewLog).where(models.ReviewLog.vocab_id == card.id)
+    ).all():
+        session.delete(log)
+    session.delete(card)
+
+
+def clear_wordbook_favorites(
+    session: Session,
+    wordbook_id: int,
+    *,
+    user_id: int | None = None,
+) -> int:
+    """清除词书内所有单词的生词本收藏记录，恢复为未收藏状态。"""
+    entry_words = {
+        _normalize_word(word)
+        for word in session.exec(
+            select(models.WordBookEntry.word).where(
+                models.WordBookEntry.wordbook_id == wordbook_id
+            )
+        ).all()
+        if word
+    }
+    if not entry_words:
+        return 0
+
+    stmt = select(models.VocabItem)
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    removed = 0
+    for card in session.exec(stmt).all():
+        if card.wordbook_id == wordbook_id or _normalize_word(card.word) in entry_words:
+            delete_vocab_card(session, card)
+            removed += 1
+    if removed:
+        session.commit()
+    return removed
+
+
+def add_word_to_vocab(session: Session, word_data: dict, user_id: int | None = None):
+    existing = _find_vocab(session, word_data["word"], user_id=user_id)
+    if existing:
+        return existing
+    fsrs_init = fsrs_scheduler.create_new_card()
+    card = models.VocabItem(
+        user_id=_required_user_id(user_id),
+        word=_normalize_word(word_data["word"]),
+        lemma=_normalize_word(word_data.get("word", "")),
+        definition=word_data.get("definition", ""),
+        pronunciation=word_data.get("pronunciation"),
+        part_of_speech=word_data.get("part_of_speech"),
+        example=word_data.get("example"),
+        translation=word_data.get("translation"),
+        **fsrs_init,
+    )
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def save_vocab_with_context(session: Session, data: dict, user_id: int | None = None):
+    user_id = _required_user_id(user_id)
+    word = _normalize_word(data["word"])
+    existing = _find_vocab(session, word, user_id=user_id)
+
+    if existing:
+        for key in (
+            "definition",
+            "pronunciation",
+            "part_of_speech",
+            "translation",
+            "example",
+            "source_platform",
+            "source_video_id",
+            "source_url",
+            "source_title",
+            "sentence",
+            "sentence_translation",
+            "timestamp",
+        ):
+            value = data.get(key)
+            if value:
+                setattr(existing, key, value)
+        if data.get("wordbook_id"):
+            existing.wordbook_id = data["wordbook_id"]
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        _ensure_vocab_context(session, existing, data, user_id=user_id)
+        _recompute_vocab_summary(session, existing)
+        session.commit()
+        session.refresh(existing)
+        return existing
+
+    fsrs_init = fsrs_scheduler.create_new_card()
+    card = models.VocabItem(
+        user_id=user_id,
+        word=word,
+        lemma=word,
+        definition=data.get("definition", ""),
+        pronunciation=data.get("pronunciation"),
+        part_of_speech=data.get("part_of_speech"),
+        example=data.get("example"),
+        translation=data.get("translation"),
+        source_platform=data.get("source_platform"),
+        source_video_id=data.get("source_video_id"),
+        source_url=data.get("source_url"),
+        source_title=data.get("source_title"),
+        sentence=data.get("sentence"),
+        sentence_translation=data.get("sentence_translation"),
+        timestamp=data.get("timestamp"),
+        wordbook_id=data.get("wordbook_id"),
+        **fsrs_init,
+    )
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    _ensure_vocab_context(session, card, data, user_id=user_id)
+    _recompute_vocab_summary(session, card)
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def _filter_vocab_by_source(statement, source_video_id: str | None, user_id: int | None = None):
+    if not source_video_id:
+        return statement
+    ctx_query = select(models.VocabContext.vocab_id).where(
+        models.VocabContext.source_video_id == source_video_id
+    )
+    scoped_user_id = _scoped_user_id(user_id)
+    if scoped_user_id is not None:
+        ctx_query = ctx_query.where(models.VocabContext.user_id == scoped_user_id)
+    return statement.where(
+        or_(
+            models.VocabItem.source_video_id == source_video_id,
+            models.VocabItem.id.in_(ctx_query),
+        )
+    )
+
+
+def _card_matches_source(session: Session, card: models.VocabItem, source_video_id: str | None) -> bool:
+    if not source_video_id:
+        return True
+    if card.source_video_id == source_video_id:
+        return True
+    ctx = session.exec(
+        select(models.VocabContext.id).where(
+            models.VocabContext.vocab_id == card.id,
+            models.VocabContext.source_video_id == source_video_id,
+        )
+    ).first()
+    return ctx is not None
+
+
+def list_vocab(
+    session: Session,
+    source_video_id: str | None = None,
+    *,
+    wordbook_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.VocabItem).order_by(models.VocabItem.added_at.desc())
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    if wordbook_id is not None:
+        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+    items = session.exec(stmt).all()
+    if source_video_id:
+        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+    return items
+
+
+def list_video_summaries(session: Session, user_id: int | None = None):
+    uid = _scoped_user_id(user_id)
+    cards = list_vocab(session, user_id=uid)
+    summary: dict[tuple[str, str | None, str | None, str | None], set[int]] = defaultdict(set)
+    for card in cards:
+        contexts = session.exec(
+            select(models.VocabContext).where(models.VocabContext.vocab_id == card.id)
+        ).all()
+        if contexts:
+            for ctx in contexts:
+                if not ctx.source_video_id:
+                    continue
+                key = (ctx.source_video_id, ctx.source_title, ctx.source_platform, ctx.source_url)
+                summary[key].add(card.id)
+        elif card.source_video_id:
+            key = (card.source_video_id, card.source_title, card.source_platform, card.source_url)
+            summary[key].add(card.id)
+
+    items = [
+        {
+            "source_video_id": key[0],
+            "source_title": key[1],
+            "source_platform": key[2],
+            "source_url": key[3]
+            or (
+                f"/reader?id={(key[0] or '').replace('reading-', '')}"
+                if key[2] == "reading"
+                else key[3]
+            ),
+            "word_count": len(vocab_ids),
+        }
+        for key, vocab_ids in summary.items()
+    ]
+    return sorted(items, key=lambda item: item["word_count"], reverse=True)
+
+
+def get_vocab_card(session: Session, vocab_id: int, user_id: int | None = None):
+    stmt = select(models.VocabItem).where(models.VocabItem.id == vocab_id)
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    return session.exec(stmt).first()
+
+
+def get_due_vocab(
+    session: Session,
+    now: datetime,
+    source_video_id: str | None = None,
+    *,
+    wordbook_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.VocabItem).where(models.VocabItem.due <= now)
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    if wordbook_id is not None:
+        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+    items = session.exec(stmt.order_by(models.VocabItem.due)).all()
+    if source_video_id:
+        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+    return items
+
+
+def get_all_vocab_for_practice(
+    session: Session,
+    limit: int = 20,
+    source_video_id: str | None = None,
+    *,
+    wordbook_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.VocabItem)
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    if wordbook_id is not None:
+        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+    items = session.exec(stmt.order_by(models.VocabItem.due)).all()
+    if source_video_id:
+        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+    return items[:limit]
+
+
+def review_vocab(
+    session: Session,
+    vocab_id: int,
+    rating: int,
+    *,
+    user_id: int | None = None,
+) -> models.VocabItem | None:
+    card = get_vocab_card(session, vocab_id, user_id=user_id)
+    if not card:
+        return None
+    due_before = card.due
+    fsrs_scheduler.review_card(card, rating)
+    session.add(card)
+    session.commit()
+    session.refresh(card)
+    log = models.ReviewLog(
+        user_id=card.user_id,
+        vocab_id=card.id,
+        rating=rating,
+        due_before=due_before,
+        due_after=card.due,
+        scheduled_days_after=card.scheduled_days,
+        stability_after=card.stability,
+        difficulty_after=card.difficulty,
+    )
+    session.add(log)
+    session.commit()
+    session.refresh(card)
+    return card
+
+
+def create_reading(
+    session: Session,
+    title: str,
+    content: str,
+    source_type: str = "paste",
+    source_url: str | None = None,
+    source_filename: str | None = None,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingDocument:
+    from app.services.reading_limits import BLOCK_INSERT_BATCH, MAX_CONTENT_CHARS
+    from app.services.reading_search import index_document
+    from app.services.text_hash import text_hash
+    from app.services.text_splitter import split_into_blocks
+
+    if len(content) > MAX_CONTENT_CHARS:
+        raise ValueError(
+            f"文本过长（{len(content):,} 字符，上限 {MAX_CONTENT_CHARS:,}）。"
+            "建议拆分成多卷导入。"
+        )
+
+    blocks_text = split_into_blocks(content)
+    word_count = len(content.split())
+    size_hint = ""
+    if len(content) > 1_000_000:
+        size_hint = f"大型书籍已导入（{len(blocks_text)} 段），打开章节后将按需翻译。"
+
+    doc = models.ReadingDocument(
+        user_id=_required_user_id(user_id),
+        title=title.strip() or "Untitled",
+        block_count=len(blocks_text),
+        word_count=word_count,
+        translate_status="ready",
+        status_message=size_hint or "可以开始阅读（打开章节后自动翻译）",
+        source_type=source_type,
+        source_url=source_url,
+        source_filename=source_filename,
+    )
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+
+    for batch_start in range(0, len(blocks_text), BLOCK_INSERT_BATCH):
+        batch = blocks_text[batch_start : batch_start + BLOCK_INSERT_BATCH]
+        items = [
+            models.ReadingBlock(
+                document_id=doc.id,
+                order_index=batch_start + i,
+                text=block["text"],
+                section_title=block.get("section_title"),
+                text_hash=text_hash(block["text"]),
+            )
+            for i, block in enumerate(batch)
+        ]
+        session.add_all(items)
+        session.commit()
+
+    rebuild_reading_chapters(session, doc.id)
+    try:
+        index_document(session, doc.id)
+    except Exception:
+        pass
+    session.refresh(doc)
+    return doc
+
+
+def rebuild_reading_chapters(session: Session, doc_id: int) -> list[models.ReadingChapter]:
+    from app.services.reading_chapters import derive_chapter_specs
+
+    existing = session.exec(
+        select(models.ReadingChapter).where(models.ReadingChapter.document_id == doc_id)
+    ).all()
+    for row in existing:
+        session.delete(row)
+    session.commit()
+
+    blocks = get_reading_blocks(session, doc_id)
+    specs = derive_chapter_specs(blocks)
+    rows: list[models.ReadingChapter] = []
+    for index, spec in enumerate(specs):
+        row = models.ReadingChapter(
+            document_id=doc_id,
+            chapter_index=index,
+            title=spec["title"],
+            start_block=spec["start_block"],
+            end_block=spec["end_block"],
+            block_count=spec["block_count"],
+        )
+        rows.append(row)
+        session.add(row)
+    session.commit()
+    return rows
+
+
+def ensure_reading_chapters(session: Session, doc_id: int) -> list[models.ReadingChapter]:
+    rows = session.exec(
+        select(models.ReadingChapter)
+        .where(models.ReadingChapter.document_id == doc_id)
+        .order_by(models.ReadingChapter.chapter_index.asc())
+    ).all()
+    if rows:
+        return rows
+    return rebuild_reading_chapters(session, doc_id)
+
+
+def list_reading_chapters(session: Session, doc_id: int) -> list[models.ReadingChapter]:
+    return ensure_reading_chapters(session, doc_id)
+
+
+def get_reading_chapter(session: Session, doc_id: int, chapter_index: int) -> models.ReadingChapter | None:
+    ensure_reading_chapters(session, doc_id)
+    return session.exec(
+        select(models.ReadingChapter).where(
+            models.ReadingChapter.document_id == doc_id,
+            models.ReadingChapter.chapter_index == chapter_index,
+        )
+    ).first()
+
+
+def get_reading_chapter_blocks_page(
+    session: Session,
+    doc_id: int,
+    chapter_index: int,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[models.ReadingChapter | None, list[models.ReadingBlock], int]:
+    chapter = get_reading_chapter(session, doc_id, chapter_index)
+    if not chapter:
+        return None, [], 0
+    safe_offset = max(0, int(offset))
+    safe_limit = max(1, min(200, int(limit)))
+    total = chapter.block_count
+    start_index = chapter.start_block + safe_offset
+    if start_index > chapter.end_block:
+        return chapter, [], total
+    end_index = min(chapter.end_block, start_index + safe_limit - 1)
+    items = session.exec(
+        select(models.ReadingBlock)
+        .where(
+            models.ReadingBlock.document_id == doc_id,
+            models.ReadingBlock.order_index >= start_index,
+            models.ReadingBlock.order_index <= end_index,
+        )
+        .order_by(models.ReadingBlock.order_index.asc())
+    ).all()
+    return chapter, items, total
+
+
+def list_readings(session: Session, user_id: int | None = None, *, local_only: bool = False):
+    stmt = select(models.ReadingDocument).order_by(models.ReadingDocument.created_at.desc())
+    stmt = _apply_user_scope(stmt, models.ReadingDocument, user_id)
+    stmt = _apply_active_reading_filter(stmt)
+    if local_only:
+        uid = _required_user_id(user_id)
+        linked_ids = session.exec(
+            select(models.LibraryBook.reading_document_id).where(
+                models.LibraryBook.user_id == uid,
+                models.LibraryBook.reading_document_id.is_not(None),
+            )
+        ).all()
+        exclude = {doc_id for doc_id in linked_ids if doc_id}
+        if exclude:
+            stmt = stmt.where(models.ReadingDocument.id.not_in(exclude))
+    return session.exec(stmt).all()
+
+
+def get_reading(session: Session, doc_id: int, user_id: int | None = None):
+    stmt = select(models.ReadingDocument).where(models.ReadingDocument.id == doc_id)
+    stmt = _apply_user_scope(stmt, models.ReadingDocument, user_id)
+    stmt = _apply_active_reading_filter(stmt)
+    return session.exec(stmt).first()
+
+
+def get_reading_blocks(session: Session, doc_id: int):
+    return session.exec(
+        select(models.ReadingBlock)
+        .where(models.ReadingBlock.document_id == doc_id)
+        .order_by(models.ReadingBlock.order_index)
+    ).all()
+
+
+def get_reading_blocks_page(session: Session, doc_id: int, offset: int = 0, limit: int = 50):
+    return session.exec(
+        select(models.ReadingBlock)
+        .where(models.ReadingBlock.document_id == doc_id)
+        .order_by(models.ReadingBlock.order_index)
+        .offset(offset)
+        .limit(limit)
+    ).all()
+
+
+def get_reading_blocks_in_range(
+    session: Session,
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+) -> list[models.ReadingBlock]:
+    return session.exec(
+        select(models.ReadingBlock)
+        .where(
+            models.ReadingBlock.document_id == doc_id,
+            models.ReadingBlock.order_index >= start_block,
+            models.ReadingBlock.order_index <= end_block,
+        )
+        .order_by(models.ReadingBlock.order_index.asc())
+    ).all()
+
+
+def count_translated_blocks(session: Session, doc_id: int) -> int:
+    """SQL COUNT，避免长篇全书加载 translation 列到内存。"""
+    count = session.exec(
+        select(func.count())
+        .select_from(models.ReadingBlock)
+        .where(
+            models.ReadingBlock.document_id == doc_id,
+            models.ReadingBlock.translation.isnot(None),
+            func.length(func.trim(models.ReadingBlock.translation)) > 0,
+        )
+    ).one()
+    return int(count or 0)
+
+
+def increment_translated_blocks(session: Session, doc_id: int, delta: int) -> int:
+    """增量更新已译段数，供翻译批处理使用。"""
+    if delta <= 0:
+        doc = session.get(models.ReadingDocument, doc_id)
+        return int(doc.translated_blocks or 0) if doc else 0
+    doc = session.get(models.ReadingDocument, doc_id)
+    if not doc:
+        return 0
+    total = doc.block_count or 0
+    doc.translated_blocks = min(total, int(doc.translated_blocks or 0) + delta)
+    doc.translate_progress = min(100, int(doc.translated_blocks / max(total, 1) * 100))
+    session.add(doc)
+    return doc.translated_blocks
+
+
+def sync_translated_blocks(session: Session, doc_id: int) -> int:
+    """从数据库对账已译段数（任务结束或补译排队时调用）。"""
+    doc = session.get(models.ReadingDocument, doc_id)
+    if not doc:
+        return 0
+    translated = count_translated_blocks(session, doc_id)
+    doc.translated_blocks = translated
+    doc.translate_progress = min(100, int(translated / max(doc.block_count or 1, 1) * 100))
+    session.add(doc)
+    return translated
+
+
+def apply_cached_translations_in_range(
+    session: Session,
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+) -> int:
+    applied = 0
+    for block in get_reading_blocks_in_range(session, doc_id, start_block, end_block):
+        if (block.translation or "").strip() or not block.text.strip():
+            continue
+        cached = get_translation_from_cache(session, block.text)
+        if cached:
+            block.translation = cached
+            session.add(block)
+            applied += 1
+    if applied:
+        increment_translated_blocks(session, doc_id, applied)
+        session.commit()
+    return applied
+
+
+def get_translation_from_cache(session: Session, text: str, record_hit: bool = True) -> str | None:
+    from app.services.text_hash import text_hash
+
+    hash_value = text_hash(text)
+    if not hash_value:
+        return None
+    row = session.exec(
+        select(models.TranslationCache).where(models.TranslationCache.text_hash == hash_value)
+    ).first()
+    if not row or not (row.translation or "").strip():
+        return None
+    if record_hit:
+        row.hit_count += 1
+        row.updated_at = _utc_now()
+        session.add(row)
+    return row.translation
+
+
+def save_translation_cache(session: Session, text: str, translation: str) -> None:
+    from app.services.text_hash import text_hash
+
+    translated = (translation or "").strip()
+    hash_value = text_hash(text)
+    if not hash_value or not translated:
+        return
+    row = session.exec(
+        select(models.TranslationCache).where(models.TranslationCache.text_hash == hash_value)
+    ).first()
+    if row:
+        row.translation = translated
+        row.updated_at = _utc_now()
+        session.add(row)
+    else:
+        session.add(models.TranslationCache(text_hash=hash_value, translation=translated))
+
+
+def apply_cached_translations(session: Session, doc_id: int) -> int:
+    blocks = get_reading_blocks(session, doc_id)
+    applied = 0
+    for block in blocks:
+        if (block.translation or "").strip() or not block.text.strip():
+            continue
+        cached = get_translation_from_cache(session, block.text)
+        if cached:
+            block.translation = cached
+            session.add(block)
+            applied += 1
+    if applied:
+        increment_translated_blocks(session, doc_id, applied)
+        session.commit()
+    return applied
+
+
+def delete_reading(
+    session: Session,
+    doc_id: int,
+    delete_vocab: bool = False,
+    *,
+    user_id: int | None = None,
+) -> bool:
+    uid = _scoped_user_id(user_id)
+    stmt = select(models.ReadingDocument).where(
+        models.ReadingDocument.id == doc_id,
+        models.ReadingDocument.deleted_at.is_(None),
+    )
+    if uid is not None:
+        stmt = stmt.where(models.ReadingDocument.user_id == uid)
+    doc = session.exec(stmt).first()
+    if not doc:
+        return False
+
+    if delete_vocab:
+        source_id = f"reading-{doc_id}"
+        cards = list_vocab(session, source_video_id=source_id, user_id=doc.user_id)
+        for card in cards:
+            for ctx in session.exec(
+                select(models.VocabContext).where(models.VocabContext.vocab_id == card.id)
+            ).all():
+                session.delete(ctx)
+            for log in session.exec(
+                select(models.ReviewLog).where(models.ReviewLog.vocab_id == card.id)
+            ).all():
+                session.delete(log)
+            session.delete(card)
+
+    now = _utc_now()
+    doc.deleted_at = now
+    session.add(doc)
+
+    for book in session.exec(
+        select(models.LibraryBook).where(models.LibraryBook.reading_document_id == doc_id)
+    ).all():
+        book.reading_document_id = None
+        book.updated_at = now
+        session.add(book)
+
+    session.commit()
+    return True
+
+
+def prepare_retranslate_missing(
+    session: Session,
+    doc_id: int,
+    *,
+    user_id: int | None = None,
+) -> tuple[models.ReadingDocument | None, bool]:
+    """补译排队：保留已有译文，仅处理未译段落。返回 (文档, 是否需要启动任务)。"""
+    doc = get_reading(session, doc_id, user_id=user_id)
+    if not doc:
+        return None, False
+
+    translated = sync_translated_blocks(session, doc_id)
+    total = doc.block_count or 0
+
+    if total > 0 and translated >= total:
+        doc.translate_status = "done"
+        doc.status_message = "翻译已完成"
+        doc.active_job_id = None
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+        return doc, False
+
+    supersede_reading_translate_jobs(session, doc_id, user_id=doc.user_id)
+    doc.translate_status = "pending"
+    doc.status_message = f"补译未翻译段落（已译 {translated}/{total}）..."
+    doc.active_job_id = None
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return doc, True
+
+
+def reset_reading_translations(
+    session: Session,
+    doc_id: int,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingDocument | None:
+    doc = get_reading(session, doc_id, user_id=user_id)
+    if not doc:
+        return None
+    supersede_reading_translate_jobs(session, doc_id, user_id=doc.user_id)
+    for block in get_reading_blocks(session, doc_id):
+        block.translation = None
+        session.add(block)
+    doc.translate_status = "pending"
+    doc.translate_progress = 0
+    doc.translated_blocks = 0
+    doc.status_message = "重新翻译排队中..."
+    doc.active_job_id = None
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return doc
+
+
+def supersede_reading_translate_jobs(
+    session: Session,
+    doc_id: int,
+    *,
+    user_id: int | None = None,
+) -> int:
+    uid = _required_user_id(user_id)
+    jobs = session.exec(
+        select(models.Job).where(
+            models.Job.kind == "reading_translate",
+            models.Job.target_type == "reading",
+            models.Job.target_id == doc_id,
+            models.Job.status.in_(("pending", "running")),
+        )
+    ).all()
+    now = _utc_now()
+    count = 0
+    for job in jobs:
+        if job.user_id != uid:
+            continue
+        job.status = "failed"
+        job.message = "已被新的翻译任务取代"
+        job.finished_at = now
+        session.add(job)
+        count += 1
+    if count:
+        session.commit()
+    return count
+
+
+def update_reading_title(
+    session: Session,
+    doc_id: int,
+    title: str,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingDocument | None:
+    doc = get_reading(session, doc_id, user_id=user_id)
+    if not doc:
+        return None
+    doc.title = (title or "").strip() or doc.title
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return doc
+
+
+def migrate_vocab_source(
+    session: Session,
+    from_source_id: str,
+    to_source_id: str,
+    *,
+    source_platform: str,
+    source_url: str = "",
+    source_title: str | None = None,
+    user_id: int | None = None,
+) -> int:
+    cards = list_vocab(session, source_video_id=from_source_id, user_id=user_id)
+    count = 0
+    for card in cards:
+        contexts = session.exec(
+            select(models.VocabContext).where(
+                models.VocabContext.vocab_id == card.id,
+                models.VocabContext.source_video_id == from_source_id,
+            )
+        ).all()
+        if contexts:
+            for ctx in contexts:
+                ctx.source_video_id = to_source_id
+                ctx.source_platform = source_platform
+                if source_url:
+                    ctx.source_url = source_url
+                if source_title:
+                    ctx.source_title = source_title
+                session.add(ctx)
+        elif card.source_video_id == from_source_id:
+            _ensure_vocab_context(
+                session,
+                card,
+                {
+                    "source_platform": source_platform,
+                    "source_video_id": to_source_id,
+                    "source_url": source_url or card.source_url or "",
+                    "source_title": source_title or card.source_title,
+                    "sentence": card.sentence,
+                    "sentence_translation": card.sentence_translation,
+                    "timestamp": card.timestamp,
+                },
+                user_id=card.user_id,
+            )
+        _recompute_vocab_summary(session, card)
+        count += 1
+    session.commit()
+    return count
+
+
+def list_incomplete_readings(session: Session, user_id: int | None = None):
+    stmt = select(models.ReadingDocument).where(
+        models.ReadingDocument.translate_status.in_(("pending", "ready", "translating"))
+    )
+    stmt = _apply_user_scope(stmt, models.ReadingDocument, user_id)
+    return session.exec(stmt).all()
+
+
+def update_reading_progress(
+    session: Session,
+    doc_id: int,
+    block_index: int,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingDocument | None:
+    doc = get_reading(session, doc_id, user_id=user_id)
+    if not doc:
+        return None
+    doc.last_block_index = max(0, block_index)
+    if doc.block_count > 0:
+        doc.read_progress = min(100, int((doc.last_block_index + 1) / doc.block_count * 100))
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+    return doc
+
+
+def get_reading_vocab_words(session: Session, doc_id: int, user_id: int | None = None) -> list[str]:
+    source_id = f"reading-{doc_id}"
+    cards = list_vocab(session, source_video_id=source_id, user_id=user_id)
+    if not cards:
+        cards = list_vocab(session, user_id=user_id)
+    return list({card.word.lower() for card in cards})
+
+
+def get_reading_vocab_stats(session: Session, doc_id: int, user_id: int | None = None) -> dict:
+    source_id = f"reading-{doc_id}"
+    cards = list_vocab(session, source_video_id=source_id, user_id=user_id)
+    words = list({card.word.lower() for card in cards})
+    due_count = sum(1 for card in cards if _is_due(card.due))
+    return {"words": words, "word_count": len(cards), "due_count": due_count}
+
+
+def enrich_notes_with_block_index(
+    session: Session, notes: list[models.ReadingNote]
+) -> list[dict]:
+    """为笔记附加 block_index，便于前端跳转到未加载段落。"""
+    if not notes:
+        return []
+    block_ids: set[int] = set()
+    highlight_ids: set[int] = set()
+    for note in notes:
+        if note.block_id:
+            block_ids.add(note.block_id)
+        if note.highlight_id:
+            highlight_ids.add(note.highlight_id)
+    if highlight_ids:
+        for hl in session.exec(
+            select(models.ReadingHighlight).where(models.ReadingHighlight.id.in_(highlight_ids))
+        ).all():
+            if hl.block_id:
+                block_ids.add(hl.block_id)
+    index_by_id: dict[int, int] = {}
+    if block_ids:
+        for block_id, order_index in session.exec(
+            select(models.ReadingBlock.id, models.ReadingBlock.order_index).where(
+                models.ReadingBlock.id.in_(block_ids)
+            )
+        ).all():
+            index_by_id[int(block_id)] = int(order_index)
+    hl_block: dict[int, int] = {}
+    if highlight_ids:
+        for hl_id, block_id in session.exec(
+            select(models.ReadingHighlight.id, models.ReadingHighlight.block_id).where(
+                models.ReadingHighlight.id.in_(highlight_ids)
+            )
+        ).all():
+            hl_block[int(hl_id)] = int(block_id)
+    enriched: list[dict] = []
+    for note in notes:
+        payload = note.model_dump()
+        block_id = note.block_id or hl_block.get(note.highlight_id or 0)
+        payload["block_index"] = index_by_id.get(block_id) if block_id else None
+        enriched.append(payload)
+    return enriched
+
+
+def list_highlights(session: Session, doc_id: int, user_id: int | None = None):
+    stmt = (
+        select(models.ReadingHighlight)
+        .where(models.ReadingHighlight.document_id == doc_id)
+        .order_by(models.ReadingHighlight.created_at)
+    )
+    stmt = _apply_user_scope(stmt, models.ReadingHighlight, user_id)
+    return session.exec(stmt).all()
+
+
+def create_highlight(
+    session: Session,
+    doc_id: int,
+    data: dict,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingHighlight:
+    block = session.get(models.ReadingBlock, data["block_id"])
+    if not block or block.document_id != doc_id:
+        raise ValueError("段落不存在")
+    start = int(data["start_offset"])
+    end = int(data["end_offset"])
+    text_len = len(block.text)
+    if start < 0 or end <= start or end > text_len:
+        raise ValueError("高亮范围无效")
+    highlight = models.ReadingHighlight(
+        user_id=_required_user_id(user_id),
+        document_id=doc_id,
+        **data,
+    )
+    session.add(highlight)
+    session.commit()
+    session.refresh(highlight)
+    return highlight
+
+
+def delete_highlight(session: Session, doc_id: int, highlight_id: int, user_id: int | None = None) -> bool:
+    stmt = select(models.ReadingHighlight).where(models.ReadingHighlight.id == highlight_id)
+    stmt = _apply_user_scope(stmt, models.ReadingHighlight, user_id)
+    highlight = session.exec(stmt).first()
+    if not highlight or highlight.document_id != doc_id:
+        return False
+    for note in session.exec(
+        select(models.ReadingNote).where(models.ReadingNote.highlight_id == highlight_id)
+    ).all():
+        note.highlight_id = None
+        session.add(note)
+    session.delete(highlight)
+    session.commit()
+    return True
+
+
+def validate_note_refs(session: Session, doc_id: int, block_id: int | None, highlight_id: int | None) -> None:
+    if block_id is not None:
+        block = session.get(models.ReadingBlock, block_id)
+        if not block or block.document_id != doc_id:
+            raise ValueError("段落不存在")
+    if highlight_id is not None:
+        highlight = session.get(models.ReadingHighlight, highlight_id)
+        if not highlight or highlight.document_id != doc_id:
+            raise ValueError("高亮不存在")
+
+
+def list_notes(session: Session, doc_id: int, user_id: int | None = None):
+    stmt = (
+        select(models.ReadingNote)
+        .where(models.ReadingNote.document_id == doc_id)
+        .order_by(models.ReadingNote.updated_at.desc())
+    )
+    stmt = _apply_user_scope(stmt, models.ReadingNote, user_id)
+    return session.exec(stmt).all()
+
+
+def create_note(
+    session: Session,
+    doc_id: int,
+    data: dict,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingNote:
+    note = models.ReadingNote(user_id=_required_user_id(user_id), document_id=doc_id, **data)
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note
+
+
+def update_note(
+    session: Session,
+    doc_id: int,
+    note_id: int,
+    content: str,
+    *,
+    user_id: int | None = None,
+):
+    stmt = select(models.ReadingNote).where(models.ReadingNote.id == note_id)
+    stmt = _apply_user_scope(stmt, models.ReadingNote, user_id)
+    note = session.exec(stmt).first()
+    if not note or note.document_id != doc_id:
+        return None
+    note.content = content
+    note.updated_at = datetime.now(timezone.utc)
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note
+
+
+def delete_note(session: Session, doc_id: int, note_id: int, user_id: int | None = None) -> bool:
+    stmt = select(models.ReadingNote).where(models.ReadingNote.id == note_id)
+    stmt = _apply_user_scope(stmt, models.ReadingNote, user_id)
+    note = session.exec(stmt).first()
+    if not note or note.document_id != doc_id:
+        return False
+    session.delete(note)
+    session.commit()
+    return True
+
+
+def get_block(session: Session, block_id: int):
+    return session.get(models.ReadingBlock, block_id)
+
+
+def list_bookmarks(session: Session, doc_id: int, user_id: int | None = None):
+    stmt = (
+        select(models.ReadingBookmark)
+        .where(models.ReadingBookmark.document_id == doc_id)
+        .order_by(models.ReadingBookmark.block_index)
+    )
+    stmt = _apply_user_scope(stmt, models.ReadingBookmark, user_id)
+    return session.exec(stmt).all()
+
+
+def create_bookmark(
+    session: Session,
+    doc_id: int,
+    block_index: int,
+    label: str = "",
+    *,
+    user_id: int | None = None,
+) -> models.ReadingBookmark:
+    doc = get_reading(session, doc_id, user_id=user_id)
+    if not doc:
+        raise ValueError("文档不存在")
+    idx = max(0, min(block_index, max(0, doc.block_count - 1)))
+    bookmark = models.ReadingBookmark(
+        user_id=_required_user_id(user_id),
+        document_id=doc_id,
+        block_index=idx,
+        label=(label or "").strip(),
+    )
+    session.add(bookmark)
+    session.commit()
+    session.refresh(bookmark)
+    return bookmark
+
+
+def update_bookmark(
+    session: Session,
+    doc_id: int,
+    bookmark_id: int,
+    label: str,
+    *,
+    user_id: int | None = None,
+) -> models.ReadingBookmark | None:
+    stmt = select(models.ReadingBookmark).where(models.ReadingBookmark.id == bookmark_id)
+    stmt = _apply_user_scope(stmt, models.ReadingBookmark, user_id)
+    bookmark = session.exec(stmt).first()
+    if not bookmark or bookmark.document_id != doc_id:
+        return None
+    bookmark.label = (label or "").strip() or bookmark.label
+    session.add(bookmark)
+    session.commit()
+    session.refresh(bookmark)
+    return bookmark
+
+
+def delete_bookmark(session: Session, doc_id: int, bookmark_id: int, user_id: int | None = None) -> bool:
+    stmt = select(models.ReadingBookmark).where(models.ReadingBookmark.id == bookmark_id)
+    stmt = _apply_user_scope(stmt, models.ReadingBookmark, user_id)
+    bookmark = session.exec(stmt).first()
+    if not bookmark or bookmark.document_id != doc_id:
+        return False
+    session.delete(bookmark)
+    session.commit()
+    return True
+
+
+def search_reading_blocks(session: Session, doc_id: int, query: str, limit: int = 50) -> list[dict]:
+    from app.services.reading_search import search_blocks
+
+    return search_blocks(session, doc_id, query, limit=limit)
+
+
+def create_wordbook(
+    session: Session,
+    name: str,
+    *,
+    description: str = "",
+    language: str = "en",
+    source_name: str = "",
+    user_id: int | None = None,
+) -> models.WordBook:
+    wordbook = models.WordBook(
+        user_id=_required_user_id(user_id),
+        name=name.strip(),
+        description=description.strip(),
+        language=(language or "en").strip(),
+        source_name=source_name.strip() or None,
+    )
+    session.add(wordbook)
+    session.commit()
+    session.refresh(wordbook)
+    return wordbook
+
+
+def get_wordbook(session: Session, wordbook_id: int, user_id: int | None = None):
+    stmt = select(models.WordBook).where(models.WordBook.id == wordbook_id)
+    stmt = _apply_user_scope(stmt, models.WordBook, user_id)
+    stmt = _apply_active_wordbook_filter(stmt)
+    return session.exec(stmt).first()
+
+
+def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
+    entry_count = session.exec(
+        select(func.count(models.WordBookEntry.id)).where(models.WordBookEntry.wordbook_id == wordbook.id)
+    ).one()
+    learned_count = session.exec(
+        select(func.count(models.VocabItem.id)).where(models.VocabItem.wordbook_id == wordbook.id)
+    ).one()
+    data = wordbook.model_dump()
+    data["entry_count"] = entry_count
+    data["learned_count"] = learned_count
+    return data
+
+
+def list_wordbooks(session: Session, user_id: int | None = None, *, custom_only: bool = False):
+    stmt = select(models.WordBook).order_by(models.WordBook.created_at.desc())
+    stmt = _apply_user_scope(stmt, models.WordBook, user_id)
+    stmt = _apply_active_wordbook_filter(stmt)
+    if custom_only:
+        uid = _required_user_id(user_id)
+        catalog_ids = session.exec(
+            select(models.WordBookCatalog.installed_wordbook_id).where(
+                models.WordBookCatalog.user_id == uid,
+                models.WordBookCatalog.installed_wordbook_id.is_not(None),
+            )
+        ).all()
+        exclude = {book_id for book_id in catalog_ids if book_id}
+        if exclude:
+            stmt = stmt.where(models.WordBook.id.not_in(exclude))
+    return session.exec(stmt).all()
+
+
+def soft_delete_wordbook(session: Session, wordbook_id: int, user_id: int | None = None) -> bool:
+    uid = _required_user_id(user_id)
+    stmt = select(models.WordBook).where(
+        models.WordBook.id == wordbook_id,
+        models.WordBook.user_id == uid,
+        models.WordBook.deleted_at.is_(None),
+    )
+    wordbook = session.exec(stmt).first()
+    if not wordbook:
+        return False
+
+    now = _utc_now()
+    wordbook.deleted_at = now
+    wordbook.updated_at = now
+    if not wordbook.name.endswith(f"__deleted_{wordbook.id}"):
+        wordbook.name = f"{wordbook.name}__deleted_{wordbook.id}"
+    session.add(wordbook)
+
+    catalog_rows = session.exec(
+        select(models.WordBookCatalog).where(
+            models.WordBookCatalog.user_id == uid,
+            models.WordBookCatalog.installed_wordbook_id == wordbook_id,
+        )
+    ).all()
+    for row in catalog_rows:
+        row.installed_wordbook_id = None
+        row.installed_at = None
+        row.updated_at = now
+        session.add(row)
+
+    session.commit()
+    return True
+
+
+def list_wordbook_entries(session: Session, wordbook_id: int):
+    return session.exec(
+        select(models.WordBookEntry)
+        .where(models.WordBookEntry.wordbook_id == wordbook_id)
+        .order_by(models.WordBookEntry.word.asc())
+    ).all()
+
+
+def list_wordbook_entries_page(
+    session: Session,
+    wordbook_id: int,
+    *,
+    page: int = 1,
+    page_size: int = 40,
+    query: str = "",
+    only_saved: bool = False,
+    user_id: int | None = None,
+) -> tuple[list[models.WordBookEntry], int]:
+    page = max(1, int(page))
+    page_size = max(10, min(100, int(page_size)))
+    query = (query or "").strip()
+
+    stmt = select(models.WordBookEntry).where(models.WordBookEntry.wordbook_id == wordbook_id)
+    count_stmt = select(func.count(models.WordBookEntry.id)).where(
+        models.WordBookEntry.wordbook_id == wordbook_id
+    )
+
+    if query:
+        needle = f"%{query.lower()}%"
+        filters = or_(
+            func.lower(models.WordBookEntry.word).like(needle),
+            func.lower(models.WordBookEntry.lemma).like(needle),
+            func.lower(models.WordBookEntry.translation).like(needle),
+            func.lower(models.WordBookEntry.definition).like(needle),
+        )
+        stmt = stmt.where(filters)
+        count_stmt = count_stmt.where(filters)
+
+    if only_saved:
+        vocab_stmt = select(func.lower(models.VocabItem.word))
+        vocab_stmt = _apply_user_scope(vocab_stmt, models.VocabItem, user_id)
+        saved_subquery = vocab_stmt.scalar_subquery()
+        saved_filter = func.lower(models.WordBookEntry.word).in_(saved_subquery)
+        stmt = stmt.where(saved_filter)
+        count_stmt = count_stmt.where(saved_filter)
+
+    total = session.exec(count_stmt).one()
+    items = session.exec(
+        stmt.order_by(models.WordBookEntry.word.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return items, total
+
+
+def list_wordbook_saved_words(
+    session: Session,
+    wordbook_id: int,
+    *,
+    user_id: int | None = None,
+) -> list[str]:
+    """返回当前词书里“已收藏进生词本”的单词（规范化小写）。
+
+    只取 word 列做两次轻量查询后在内存求交集，避免逐卡查询。
+    """
+    entry_words = set(
+        session.exec(
+            select(models.WordBookEntry.word).where(
+                models.WordBookEntry.wordbook_id == wordbook_id
+            )
+        ).all()
+    )
+    if not entry_words:
+        return []
+
+    vocab_stmt = select(models.VocabItem.word)
+    vocab_stmt = _apply_user_scope(vocab_stmt, models.VocabItem, user_id)
+    vocab_words = set(session.exec(vocab_stmt).all())
+
+    normalized_entry = {_normalize_word(word) for word in entry_words if word}
+    normalized_vocab = {_normalize_word(word) for word in vocab_words if word}
+    return sorted(normalized_entry & normalized_vocab)
+
+
+def add_wordbook_entries(
+    session: Session,
+    wordbook_id: int,
+    entries: Iterable[dict],
+) -> int:
+    count = 0
+    for entry in entries:
+        word = _normalize_word(entry.get("word", ""))
+        if not word:
+            continue
+        existing = session.exec(
+            select(models.WordBookEntry).where(
+                models.WordBookEntry.wordbook_id == wordbook_id,
+                models.WordBookEntry.word == word,
+            )
+        ).first()
+        if existing:
+            existing.definition = entry.get("definition", existing.definition or "")
+            existing.translation = entry.get("translation") or existing.translation
+            existing.pronunciation = entry.get("pronunciation") or existing.pronunciation
+            existing.part_of_speech = entry.get("part_of_speech") or existing.part_of_speech
+            existing.example = entry.get("example") or existing.example
+            existing.tags = entry.get("tags") or existing.tags
+            existing.level = entry.get("level") or existing.level
+            existing.lemma = entry.get("lemma") or existing.lemma or word
+            session.add(existing)
+        else:
+            session.add(
+                models.WordBookEntry(
+                    wordbook_id=wordbook_id,
+                    word=word,
+                    lemma=entry.get("lemma") or word,
+                    definition=entry.get("definition", ""),
+                    translation=entry.get("translation"),
+                    pronunciation=entry.get("pronunciation"),
+                    part_of_speech=entry.get("part_of_speech"),
+                    example=entry.get("example"),
+                    tags=entry.get("tags") or [],
+                    level=entry.get("level"),
+                )
+            )
+        count += 1
+    session.commit()
+    return count
+
+
+def add_wordbook_to_learning(
+    session: Session,
+    wordbook_id: int,
+    *,
+    entry_ids: list[int] | None = None,
+    user_id: int | None = None,
+) -> int:
+    wordbook = get_wordbook(session, wordbook_id, user_id=user_id)
+    if not wordbook:
+        return 0
+    stmt = select(models.WordBookEntry).where(models.WordBookEntry.wordbook_id == wordbook_id)
+    if entry_ids:
+        stmt = stmt.where(models.WordBookEntry.id.in_(entry_ids))
+    entries = session.exec(stmt).all()
+    added = 0
+    for entry in entries:
+        card = save_vocab_with_context(
+            session,
+            {
+                "word": entry.word,
+                "definition": entry.definition,
+                "translation": entry.translation,
+                "pronunciation": entry.pronunciation,
+                "part_of_speech": entry.part_of_speech,
+                "example": entry.example,
+                "wordbook_id": wordbook_id,
+                "source_platform": "wordbook",
+                "source_video_id": f"wordbook-{wordbook_id}",
+                "source_title": wordbook.name,
+                "sentence": entry.example,
+            },
+            user_id=_required_user_id(user_id),
+        )
+        if card.wordbook_id != wordbook_id:
+            card.wordbook_id = wordbook_id
+            session.add(card)
+            session.commit()
+        added += 1
+    return added
+
+
+def create_job(
+    session: Session,
+    kind: str,
+    *,
+    target_type: str | None = None,
+    target_id: int | None = None,
+    payload: dict | None = None,
+    user_id: int | None = None,
+) -> models.Job:
+    job = models.Job(
+        user_id=_required_user_id(user_id),
+        kind=kind,
+        target_type=target_type,
+        target_id=target_id,
+        payload_json=payload or {},
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def get_job(session: Session, job_id: int, user_id: int | None = None):
+    stmt = select(models.Job).where(models.Job.id == job_id)
+    stmt = _apply_user_scope(stmt, models.Job, user_id)
+    return session.exec(stmt).first()
+
+
+def list_jobs(
+    session: Session,
+    *,
+    status: str | None = None,
+    target_type: str | None = None,
+    target_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.Job).order_by(models.Job.created_at.desc())
+    stmt = _apply_user_scope(stmt, models.Job, user_id)
+    if status:
+        stmt = stmt.where(models.Job.status == status)
+    if target_type:
+        stmt = stmt.where(models.Job.target_type == target_type)
+    if target_id is not None:
+        stmt = stmt.where(models.Job.target_id == target_id)
+    return session.exec(stmt).all()
+
+
+def mark_job_running(session: Session, job_id: int, message: str = "") -> models.Job | None:
+    job = session.get(models.Job, job_id)
+    if not job:
+        return None
+    job.status = "running"
+    job.started_at = _utc_now()
+    if message:
+        job.message = message
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def update_job_progress(
+    session: Session,
+    job_id: int,
+    *,
+    status: str | None = None,
+    progress: int | None = None,
+    message: str | None = None,
+    result_json: dict | None = None,
+) -> models.Job | None:
+    job = session.get(models.Job, job_id)
+    if not job:
+        return None
+    if status is not None:
+        job.status = status
+    if progress is not None:
+        job.progress = max(0, min(100, progress))
+    if message is not None:
+        job.message = message
+    if result_json is not None:
+        job.result_json = result_json
+    if job.status in {"done", "failed"}:
+        job.finished_at = _utc_now()
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def save_platform_credential(
+    session: Session,
+    provider: str,
+    credential_json: dict,
+    *,
+    username: str | None = None,
+    user_id: int | None = None,
+) -> models.PlatformCredential:
+    uid = _required_user_id(user_id)
+    row = session.exec(
+        select(models.PlatformCredential).where(
+            models.PlatformCredential.user_id == uid,
+            models.PlatformCredential.provider == provider,
+        )
+    ).first()
+    if row:
+        row.credential_json = credential_json
+        row.username = username or row.username
+        row.updated_at = _utc_now()
+    else:
+        row = models.PlatformCredential(
+            user_id=uid,
+            provider=provider,
+            username=username,
+            credential_json=credential_json,
+        )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def get_platform_credential(session: Session, provider: str, user_id: int | None = None):
+    stmt = select(models.PlatformCredential).where(models.PlatformCredential.provider == provider)
+    stmt = _apply_user_scope(stmt, models.PlatformCredential, user_id)
+    return session.exec(stmt.order_by(models.PlatformCredential.updated_at.desc())).first()

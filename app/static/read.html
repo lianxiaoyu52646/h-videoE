@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>英文阅读 — VideoEnglish</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel hero">
+      <h1>📖 本地电子书阅读</h1>
+      <p>优先导入本地 EPUB / PDF / TXT 文件，进入双语阅读、点词收藏、书签批注一体化流程。扫描版 PDF 暂不支持，文本型 PDF 可直接使用。</p>
+      <div class="reading-input-tabs">
+        <button class="tab-btn" data-tab="paste">快速粘贴</button>
+        <button class="tab-btn active" data-tab="upload">导入文件</button>
+      </div>
+      <div id="pastePanel" class="reading-tab-panel hidden">
+        <input id="readingTitle" placeholder="标题（可选）" class="reading-title-input" />
+        <textarea id="readingContent" placeholder="粘贴英文书籍、文档或短故事..." rows="10"></textarea>
+        <button id="createReadingBtn" class="btn-primary">开始阅读</button>
+      </div>
+      <div id="uploadPanel" class="reading-tab-panel">
+        <input id="uploadTitle" placeholder="标题（可选，默认用文件名）" class="reading-title-input" />
+        <div id="uploadZone" class="reading-upload-zone">
+          <div>📄 拖拽文件到此处，或点击选择</div>
+          <div style="font-size:12px;margin-top:8px">支持 TXT · MD · EPUB · PDF（文本型）· 单文件最大 100MB</div>
+          <input id="fileInput" type="file" accept=".txt,.md,.text,.epub,.pdf" />
+        </div>
+        <div id="uploadFileName" class="video-meta"></div>
+        <button id="uploadReadingBtn" class="btn-primary">上传并开始</button>
+      </div>
+      <div id="statusMsg" class="status-msg"></div>
+    </section>
+
+    <section class="panel">
+      <h2>GitHub 英文书库</h2>
+      <p class="video-meta">经典公共领域英文原著会先缓存到本地磁盘，再持久化进阅读库。导入后<strong>按需翻译</strong>（打开章节再译），超长篇也可直接阅读英文。已导入的原著继续阅读也从这里进入。</p>
+      <div id="libraryBookList" class="reading-shelf"></div>
+    </section>
+
+    <section class="panel">
+      <div class="reading-shelf-toolbar">
+        <input id="shelfSearch" type="search" placeholder="搜索书名..." class="reading-search-input" />
+      </div>
+      <h2>我的本地导入 <span id="readingListCount" class="badge"></span></h2>
+      <p class="video-meta">这里只显示你自己粘贴、上传或本地导入的内容，不重复展示 GitHub 原著。</p>
+      <div id="readingList" class="reading-shelf"></div>
+    </section>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/read.js"></script>
+</body>
+</html>

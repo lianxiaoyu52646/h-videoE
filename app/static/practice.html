@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>练习 — Video English Smart Learning</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel hero">
+      <h1>听说读写练习</h1>
+      <p>选择练习模式，巩固你的生词。</p>
+    </section>
+
+    <section class="panel">
+      <div class="practice-toolbar">
+        <label class="practice-filter-label">
+          来源筛选
+          <select id="practiceFilter">
+            <option value="">全部生词</option>
+          </select>
+        </label>
+      </div>
+      <div class="practice-tabs">
+        <button class="tab-btn active" data-type="spelling">✍️ 默写</button>
+        <button class="tab-btn" data-type="listening">👂 听力</button>
+        <button class="tab-btn" data-type="reading">📖 阅读</button>
+        <button class="tab-btn" data-type="context">📝 语境</button>
+      </div>
+      <div id="practiceArea" class="practice-area"></div>
+    </section>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/practice.js"></script>
+</body>
+</html>

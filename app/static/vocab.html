@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>生词本 — VideoEnglish</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel">
+      <h1>📚 统一生词池</h1>
+      <p>视频、阅读、词书里的单词都汇总到这里。复习和练习也都在同一页完成，不再拆成两个页面来回跳。</p>
+      <div class="filter-row">
+        <label for="videoFilter">按来源筛选</label>
+        <select id="videoFilter">
+          <option value="">全部来源</option>
+        </select>
+      </div>
+      <div id="vocabStats" class="video-meta"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🧠 今日复习</h2>
+      <div id="reviewArea"></div>
+    </section>
+
+    <section id="practiceSection" class="panel">
+      <h2>✍️ 生词练习</h2>
+      <p class="video-meta">练习已经并入生词页，和当前来源筛选保持一致。</p>
+      <div class="practice-tabs">
+        <button class="tab-btn active" data-type="spelling">✍️ 默写</button>
+        <button class="tab-btn" data-type="listening">👂 听力</button>
+        <button class="tab-btn" data-type="reading">📖 阅读</button>
+        <button class="tab-btn" data-type="context">📝 语境</button>
+      </div>
+      <div id="practiceArea" class="practice-area"></div>
+    </section>
+
+    <section class="panel">
+      <h2>全部生词</h2>
+      <div id="vocabGrid" class="vocab-grid"></div>
+    </section>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/vocab.js"></script>
+  <script src="/static/js/practice.js"></script>
+</body>
+</html>

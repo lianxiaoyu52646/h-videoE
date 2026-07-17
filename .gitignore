@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+db.sqlite3
+.env
+desktop/tauri/node_modules/
+desktop/tauri/src-tauri/target/
+desktop/dist/
+build/
+dist/

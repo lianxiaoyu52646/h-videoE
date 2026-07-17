@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>学习 — VideoEnglish</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container learn-container">
+    <section class="panel learn-header">
+      <h1 id="learnTitle">加载中...</h1>
+      <div id="learnMeta" class="video-meta"></div>
+      <div class="learn-phase-row">
+        <span id="phaseBadge" class="status-badge pending">准备中</span>
+        <span id="learnPhaseTip" class="learn-phase-tip">正在初始化学习空间...</span>
+      </div>
+      <div id="statusMsg" class="status-msg"></div>
+    </section>
+
+    <div id="contentArea" class="content-grid">
+      <section class="panel video-panel">
+        <div id="videoPlayer" class="video-wrapper"></div>
+        <div id="playerControls" class="player-controls hidden">
+          <button id="playPauseBtn" class="btn-secondary">▶ 播放</button>
+          <div class="progress-bar-wrapper">
+            <input type="range" id="progressBar" class="progress-bar" min="0" max="100" value="0" step="0.1" />
+            <div id="progressFilled" class="progress-filled"></div>
+          </div>
+          <span id="timeDisplay" class="time-display">0:00 / 0:00</span>
+          <label class="player-toggle">
+            <input id="autoPauseToggle" type="checkbox" />
+            句末自动暂停
+          </label>
+          <button id="repeatLineBtn" class="btn-secondary" type="button">重播本句</button>
+        </div>
+        <div id="syncHint" class="sync-hint hidden"></div>
+      </section>
+
+      <section class="panel subtitle-panel">
+        <div class="subtitle-panel-head">
+          <h2>字幕 <span id="subtitleCount" class="badge">0 条</span></h2>
+          <div class="subtitle-tools">
+            <label class="player-toggle">
+              <input id="onlyUnknownToggle" type="checkbox" />
+              仅看待学句
+            </label>
+            <span class="subtitle-shortcuts">快捷键：空格播放/暂停，`R` 重播，`S` 收藏</span>
+          </div>
+        </div>
+        <div id="subtitleWindowMeta" class="subtitle-window-meta hidden"></div>
+        <div id="subtitleList" class="subtitle-list"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="wordModal" class="modal hidden">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeWordModal()">✕</button>
+      <div id="wordModalBody"></div>
+      <button id="saveWordBtn" class="btn-primary">⭐ 加入生词本</button>
+    </div>
+  </div>
+
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/learn.js"></script>
+</body>
+</html>

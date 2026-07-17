@@ -1,0 +1,50 @@
+﻿=== CATALOG vs FILES ===
+catalog: 13 files: 15
+in catalog not on disk: []
+on disk not in catalog: ['ielts_grokwords', 'toefl_gungorkaya']
+
+=== PER-BOOK AUDIT ===
+cet4_kylebing: entries=4192 declared=4192 count_ok=True dup_words=0 no_cn=0 no_ph=61 dup_tr_def=0
+  sample_issues(first200): {'no_example': 2}
+  sample: abruptly | 缇?/蓹'br蕦ptli/  鑻?/蓹'br蕦ptl瑟/ | adv. 绐佺劧鍦?
+cet6_kylebing: entries=3991 declared=3991 count_ok=True dup_words=0 no_cn=0 no_ph=24 dup_tr_def=0
+  sample_issues(first200): {'no_example': 5}
+  sample: abandonment | 缇?/蓹'b忙nd蓹nm蓹nt/  鑻?/蓹藞b忙nd蓹nm蓹nt/ | n. 鏀惧純
+kaoyan_kylebing: entries=5047 declared=5047 count_ok=True dup_words=0 no_cn=27 no_ph=4 dup_tr_def=0
+  sample_issues(first200): {'no_chinese': 1, 'no_example': 1}
+  sample: act | 缇?/忙kt/ | v. 琛ㄦ紨锛涗妇鍔紱璧蜂綔鐢紱n. 琛屼负锛屾硶浠わ紱涓€骞?
+tem4_kylebing: entries=4340 declared=4340 count_ok=True dup_words=0 no_cn=1 no_ph=37 dup_tr_def=0
+  sample_issues(first200): {'no_example': 6}
+  sample: adrift | 缇?/蓹'dr瑟ft/  鑻?/蓹藞dr瑟ft/ | adj. 婕棤鐩殑鍦帮紱 婕傛诞鐫€
+tem8_kylebing: entries=12410 declared=12410 count_ok=True dup_words=0 no_cn=1 no_ph=152 dup_tr_def=0
+  sample_issues(first200): {'no_example': 13}
+  sample: internship | 缇?/'瑟nt蓾n蕛瑟p/  鑻?/藞瑟nt蓽:n蕛瑟p/ | n. <缇?瀹炰範鍖诲笀
+ielts_kylebing: entries=5275 declared=5275 count_ok=True dup_words=0 no_cn=0 no_ph=27 dup_tr_def=0
+  sample_issues(first200): {'no_phonetic': 1, 'no_example': 5}
+  sample: abandon | 缇?/蓹'b忙nd蓹n/ | vt. 鏀惧純锛?閬楀純
+toefl_kylebing: entries=10367 declared=10367 count_ok=True dup_words=0 no_cn=0 no_ph=466 dup_tr_def=0
+  sample_issues(first200): {'no_example': 4}
+  sample: back | 缇?/b忙k/ | adv. 鍥炲師澶勶紱n. 鑳?鍚庨潰锛沘dj. 鍚庨潰鐨勶紱v. 鍚庨€€
+gre_kylebing: entries=9984 declared=9984 count_ok=True dup_words=0 no_cn=0 no_ph=198 dup_tr_def=0
+  sample_issues(first200): {'no_phonetic': 11, 'no_example': 37}
+  sample: daltonism |  | n. [鍖籡鑹茬洸(=color blindness)
+gmat_kylebing: entries=3312 declared=3312 count_ok=True dup_words=0 no_cn=0 no_ph=22 dup_tr_def=0
+  sample_issues(first200): {'no_example': 12}
+  sample: abdicate | 缇?/'忙bd瑟ket/  鑻?/'忙bd瑟ke瑟t/ | v. 鏀惧純锛?涓㈠純
+sat_kylebing: entries=4464 declared=4464 count_ok=True dup_words=0 no_cn=0 no_ph=22 dup_tr_def=0
+  sample_issues(first200): {'no_example': 16}
+  sample: pharmacy | 缇?/'f蓱rm蓹si/  鑻?/'f蓱藧m蓹si/ | n. 鑽埧锛?鑽墏瀛︼紱 閰嶈嵂涓氾紝 鍒惰嵂涓?
+gaozhong_kylebing: entries=3743 declared=3743 count_ok=True dup_words=0 no_cn=0 no_ph=24 dup_tr_def=0
+  sample_issues(first200): {'no_example': 6, 'no_phonetic': 1}
+  sample: a | 缇?/蓹; e/  鑻?/蓹; e瑟/ | n. 瀛楁瘝A锛涚涓€娴佺殑锛涘涓氭垚缁╄揪鏈€楂樻爣鍑嗙殑璇勪环绗﹀彿锛沘bbr. [鐗瀹夛紙am
+chuzhong_kylebing: entries=1987 declared=1987 count_ok=True dup_words=0 no_cn=0 no_ph=4 dup_tr_def=0
+  sample_issues(first200): {'no_example': 8, 'no_phonetic': 1}
+  sample: ability | 缇?/蓹藞b瑟l蓹t瑟/  鑻?/蓹'b瑟l蓹t瑟/ | n. 鑳藉姏锛?鏈锛?鎵嶈兘锛?鎵嶆櫤
+bec_kylebing: entries=2823 declared=2823 count_ok=True dup_words=0 no_cn=0 no_ph=19 dup_tr_def=0
+  sample_issues(first200): {'no_example': 12, 'no_phonetic': 1}
+  sample: pharmacy | 缇?/'f蓱rm蓹si/  鑻?/'f蓱藧m蓹si/ | n. 鑽埧锛?鑽簵锛?鑽墏瀛︼紝 閰嶈嵂
+
+=== TOTALS ===
+{'books': 13, 'entries': 71935, 'no_cn': 29, 'no_ph': 1060, 'dup_tr_def': 0}
+legacy ielts_grokwords: entries=7681 no_cn=2290
+legacy toefl_gungorkaya: entries=1000 no_cn=1000

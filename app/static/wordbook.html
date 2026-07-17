@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>词书详情 — VideoEnglish</title>
+  <link rel="stylesheet" href="https://uicdn.toast.com/tui.pagination/latest/tui-pagination.min.css" />
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel">
+      <div class="wordbook-list-head">
+        <a href="/wordbooks" class="reader-back">← 返回词书首页</a>
+        <div class="wordbook-detail-add">
+          <div class="wordbook-detail-add-row">
+            <input id="detailAddWordInput" type="text" placeholder="添加单词，如 forever" autocomplete="off" />
+            <button id="detailAddWordBtn" class="btn-primary btn-sm" type="button">添加</button>
+            <label class="btn-secondary btn-sm wordbook-import-label">
+              导入文件
+              <input id="detailImportFileInput" type="file" accept=".txt,.csv,.json,.xlsx,.xlsm" multiple hidden />
+            </label>
+          </div>
+          <div id="detailWordPreview" class="wordbook-detail-preview" hidden></div>
+        </div>
+        <div class="wordbook-search-inline">
+          <label class="wordbook-search-shell" for="entrySearchInput">
+            <span class="wordbook-search-icon" aria-hidden="true">⌕</span>
+            <input id="entrySearchInput" type="search" placeholder="搜索单词、中文或释义" />
+          </label>
+          <button id="clearEntrySearchBtn" class="btn-secondary btn-sm" type="button">清空</button>
+        </div>
+        <label class="wordbook-toggle">
+          <input id="onlySavedToggle" type="checkbox" />
+          <span>只看收藏</span>
+        </label>
+        <div id="wordbookStatus" class="status-msg"></div>
+      </div>
+
+      <div id="entriesList" class="wordbook-entry-list"></div>
+      <div class="wordbook-pagination-shell">
+        <div class="wordbook-pagination-status">
+          <div id="pageStatus" class="video-meta">第 1 / 1 页</div>
+        </div>
+        <div class="wordbook-pagination-divider" aria-hidden="true"></div>
+        <div class="wordbook-pagination-center">
+          <div id="paginationContainer" class="wordbook-pagination-plugin"></div>
+        </div>
+        <div class="wordbook-pagination-divider" aria-hidden="true"></div>
+        <div class="wordbook-pagination-tools">
+          <label class="wordbook-inline-field">
+            <span>每页</span>
+            <select id="pageSizeSelect" class="wordbook-select wordbook-page-select">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <label class="wordbook-inline-field wordbook-jump-field">
+            <span>跳至</span>
+            <input id="jumpPageInput" class="wordbook-page-jump" type="number" min="1" inputmode="numeric" placeholder="页" />
+          </label>
+          <button id="jumpPageBtn" class="btn-secondary btn-sm wordbook-jump-btn" type="button">GO</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="https://uicdn.toast.com/tui.pagination/latest/tui-pagination.min.js"></script>
+  <script src="/static/js/wordbook-detail.js"></script>
+</body>
+</html>

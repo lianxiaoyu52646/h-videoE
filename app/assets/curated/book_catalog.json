@@ -1,0 +1,79 @@
+[
+  {
+    "key": "pride_prejudice_1342",
+    "provider": "github",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "description": "经典爱情与社会观察小说，适合做中长篇英文精读。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/Pride-and-Prejudice_1342",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/Pride-and-Prejudice_1342/master/1342-0.txt",
+    "tags": ["classic", "novel", "romance"]
+  },
+  {
+    "key": "great_expectations_1400",
+    "provider": "github",
+    "title": "Great Expectations",
+    "author": "Charles Dickens",
+    "description": "狄更斯代表作，篇幅较长，适合作为长期阅读训练材料。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/Great-Expectations_1400",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/Great-Expectations_1400/master/1400-0.txt",
+    "tags": ["classic", "novel", "long-read"]
+  },
+  {
+    "key": "frankenstein_84",
+    "provider": "github",
+    "title": "Frankenstein",
+    "author": "Mary Shelley",
+    "description": "经典科幻文学文本，语言浓度较高，适合精读与词汇积累。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/Frankenstein_84",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/Frankenstein_84/master/84-0.txt",
+    "tags": ["classic", "science-fiction", "novel"]
+  },
+  {
+    "key": "alice_wonderland_11",
+    "provider": "github",
+    "title": "Alice's Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "description": "篇幅适中、句子活泼，适合轻量阅读与儿童文学风格输入。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/Alice-s-Adventures-in-Wonderland_11",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/Alice-s-Adventures-in-Wonderland_11/master/11-0.txt",
+    "tags": ["classic", "fantasy", "medium-read"]
+  },
+  {
+    "key": "time_machine_35",
+    "provider": "github",
+    "title": "The Time Machine",
+    "author": "H. G. Wells",
+    "description": "篇幅较短的科幻经典，适合作为 GitHub 书库中的第一本试读原著。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/The-Time-Machine_35",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/The-Time-Machine_35/master/35-0.txt",
+    "tags": ["classic", "science-fiction", "short-read"]
+  },
+  {
+    "key": "andersen_fairy_tales_66688",
+    "provider": "github",
+    "title": "Hans Andersen's Fairy Tales",
+    "author": "H. C. Andersen",
+    "description": "安徒生童话精选英译本（Gutenberg #66688），含丑小鸭、雪女王等名篇。",
+    "language": "en",
+    "repo_url": "https://github.com/GITenberg/Hans-Andersen-s-Fairy-Tales_66688",
+    "raw_url": "https://raw.githubusercontent.com/GITenberg/Hans-Andersen-s-Fairy-Tales_66688/master/66688-0.txt",
+    "tags": ["classic", "fairy-tale", "medium-read", "children"]
+  },
+  {
+    "key": "andersen_fairy_tales_complete_27200",
+    "provider": "github",
+    "title": "Fairy Tales of Hans Christian Andersen (Complete)",
+    "author": "Hans Christian Andersen",
+    "description": "安徒生童话全集英译（Gutenberg #27200，超长篇），导入后按章节懒翻译。",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/27200",
+    "raw_url": "https://www.gutenberg.org/files/27200/27200.txt",
+    "tags": ["classic", "fairy-tale", "long-read", "children", "complete"]
+  }
+]

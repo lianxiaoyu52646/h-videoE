@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>词书 — VideoEnglish</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <a href="/" class="nav-logo">🎬 VideoEnglish</a>
+    <div class="nav-links">
+      <a href="/">视频</a>
+      <a href="/read">阅读</a>
+      <a href="/wordbooks">词书</a>
+      <a href="/vocab">生词</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <section class="panel">
+      <h1>我的词书</h1>
+      <p class="video-meta">创建自定义词书，逐个添加单词（自动补全音标和中文），或从 txt / csv / json / xlsx 批量导入。</p>
+      <div id="wordbookStatus" class="status-msg"></div>
+
+      <form id="createWordbookForm" class="wordbook-create-form">
+        <input name="name" type="text" placeholder="词书名称，例如 我的考研词汇" required />
+        <input name="description" type="text" placeholder="说明（可选）" />
+        <button class="btn-primary" type="submit">创建词书</button>
+      </form>
+
+      <div id="myWordbookList" class="wordbook-grid"></div>
+
+      <div id="wordbookEditor" class="wordbook-editor" hidden>
+        <div class="wordbook-editor-head">
+          <div>
+            <h2 id="activeWordbookTitle">当前词书</h2>
+            <p id="activeWordbookMeta" class="video-meta"></p>
+          </div>
+          <div class="wordbook-editor-actions">
+            <button id="openActiveWordbookBtn" class="btn-secondary btn-sm" type="button">打开刷词页</button>
+            <button id="deleteActiveWordbookBtn" class="btn-danger btn-sm" type="button">删除词书</button>
+          </div>
+        </div>
+
+        <div class="wordbook-add-panel">
+          <label class="wordbook-add-label" for="addWordInput">添加单词</label>
+          <div class="wordbook-add-row">
+            <input id="addWordInput" type="text" placeholder="输入单词，例如 forever" autocomplete="off" />
+            <button id="addWordBtn" class="btn-primary" type="button">添加</button>
+          </div>
+          <div id="wordPreview" class="wordbook-word-preview" hidden></div>
+        </div>
+
+        <div class="wordbook-import-panel">
+          <label class="wordbook-add-label" for="importFileInput">批量导入</label>
+          <div class="wordbook-import-row">
+            <input id="importFileInput" type="file" accept=".txt,.csv,.json,.xlsx,.xlsm" multiple />
+            <button id="importFileBtn" class="btn-secondary" type="button">开始导入</button>
+          </div>
+          <p class="video-meta wordbook-import-hint">支持 txt / csv / json / xlsx。纯单词列表每行一个；也可「单词 + 中文 + 音标」，用 tab 或逗号分隔。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>GitHub 热门词书</h2>
+      <p class="video-meta">词库已预同步至本地，选择后一键导入。词条标准展示：单词、音标、词性、中文释义、英文例句。</p>
+      <div id="catalogStatus" class="status-msg"></div>
+      <div class="wordbook-catalog-picker">
+        <select id="catalogWordbookSelect" class="wordbook-select"></select>
+        <button id="installCatalogBtn" class="btn-primary" type="button">导入词书</button>
+        <button id="openCatalogWordbookBtn" class="btn-secondary" type="button" disabled>打开词书</button>
+      </div>
+      <div id="catalogWordbookDetail" class="wordbook-catalog-detail"></div>
+      <div id="catalogInstalledList" class="wordbook-catalog-installed"></div>
+    </section>
+  </div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/js/wordbooks.js"></script>
+</body>
+</html>
