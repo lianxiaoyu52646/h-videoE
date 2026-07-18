@@ -9,7 +9,6 @@ const wordPopover = document.getElementById('wordPopover');
 const wordPopoverBody = document.getElementById('wordPopoverBody');
 const saveWordBtn = document.getElementById('saveWordBtn');
 const speakWordBtn = document.getElementById('speakWordBtn');
-const expandWordBtn = document.getElementById('expandWordBtn');
 const closePopover = document.getElementById('closePopover');
 const displayMode = document.getElementById('displayMode');
 const fontSmaller = document.getElementById('fontSmaller');
@@ -964,55 +963,52 @@ function lookupSourceLabel(source) {
   return map[source] || source || '本地词典';
 }
 
-function renderWordSuggestions(data) {
-  const items = Array.isArray(data?.suggestions) ? data.suggestions : [];
-  if (!items.length) return '';
-  return `
-    <div class="word-popover-suggestions">
-      <strong>近似词</strong>
-      <div class="word-popover-suggestion-list">
-        ${items.map((item) => `<button type="button" class="word-suggestion-chip" data-suggest-word="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('')}
-      </div>
-    </div>
-  `;
+function formatPronunciation(pron) {
+  if (!pron) return '';
+  const parts = [];
+  if (pron.includes('美')) {
+    const match = pron.match(/美([^英]+)/);
+    if (match) parts.push(`<span class="phonetic-us">${escapeHtml(match[1].trim())}</span>`);
+  }
+  if (pron.includes('英')) {
+    const match = pron.match(/英(.+)/);
+    if (match) parts.push(`<span class="phonetic-uk">${escapeHtml(match[1].trim())}</span>`);
+  }
+  if (!parts.length) parts.push(`<span class="phonetic-other">${escapeHtml(pron)}</span>`);
+  return parts.join(' ');
 }
 
-function renderPopoverCompact(data) {
+function renderPopoverContent(data) {
   const saved = savedWords.has((data.word || '').toLowerCase());
-  const zh = data.translation || data.youdao_translation || data.definition || '暂无本地释义';
+  let zh = data.translation || data.youdao_translation || data.definition || '暂无释义';
+  zh = zh.replace(/\b(?:n\.|v\.|adj\.|adv\.|prep\.|conj\.|pron\.|num\.|art\.|int\.|aux\.)\s*/g, '');
+  
+  let examplesHtml = '';
+  if (data.example) {
+    examplesHtml = `
+      <div class="word-popover-examples">
+        <div class="word-popover-example">${escapeHtml(data.example)}</div>
+      </div>
+    `;
+  }
+  
+  const phoneticHtml = data.pronunciation ? formatPronunciation(data.pronunciation) : '';
+  
   wordPopoverBody.innerHTML = `
     <div class="word-popover-word-row">
       <div class="word-popover-word">${escapeHtml(data.word)}</div>
-      <span class="word-popover-source">${escapeHtml(lookupSourceLabel(data.lookup_source))}</span>
     </div>
-    <div class="word-popover-phonetic">${escapeHtml(data.pronunciation || '')}</div>
+    ${phoneticHtml ? `<div class="word-popover-phonetic">${phoneticHtml}</div>` : ''}
     <div class="word-popover-def">${escapeHtml(zh)}</div>
-    ${data.definition && data.definition !== zh
-      ? `<div class="word-popover-alt">英文释义: ${escapeHtml(data.definition)}</div>` : ''}
-    <div class="word-popover-hint">本次查词已命中本地词典，未使用在线翻译。</div>
-    ${renderWordSuggestions(data)}
+    ${examplesHtml}
   `;
-  saveWordBtn.textContent = saved ? '★ 已收藏' : '⭐ 收藏';
-  saveWordBtn.disabled = saved;
-  expandWordBtn.classList.remove('hidden');
+  updateSaveButton(saved);
 }
 
-function renderPopoverExpanded(data) {
-  wordPopoverBody.innerHTML = `
-    <div class="word-popover-word-row">
-      <div class="word-popover-word">${escapeHtml(data.word)}</div>
-      <span class="word-popover-source">${escapeHtml(lookupSourceLabel(data.lookup_source))}</span>
-    </div>
-    <div class="word-popover-phonetic">${escapeHtml(data.pronunciation || '')}</div>
-    <div class="word-popover-detail">
-      <div><strong>中文释义</strong> ${escapeHtml(data.translation || data.youdao_translation || '暂无')}</div>
-      <div><strong>英文释义</strong> ${escapeHtml(data.definition || '暂无')}</div>
-      ${data.part_of_speech ? `<div><strong>词性</strong> ${escapeHtml(data.part_of_speech)}</div>` : ''}
-      ${data.example ? `<div><strong>例句</strong> ${escapeHtml(data.example)}</div>` : ''}
-    </div>
-    <div class="word-popover-hint">本次查词已命中本地词典，未使用在线翻译。</div>
-    ${renderWordSuggestions(data)}
-  `;
+function updateSaveButton(saved) {
+  saveWordBtn.textContent = saved ? '★' : '☆';
+  saveWordBtn.classList.toggle('saved', saved);
+  saveWordBtn.disabled = false;
 }
 
 async function fetchChapterBlocksPage(chapterIndex, offset, limit = CHAPTER_CHUNK) {
@@ -1639,12 +1635,95 @@ async function saveHighlight() {
 
 function lookupSelection() {
   if (!pendingSelection) return;
-  const word = pendingSelection.text.replace(/[^A-Za-z'-]/g, '').split(/\s+/)[0]?.split("'")[0];
-  if (word && word.length > 1) {
+  const text = pendingSelection.text.trim();
+  const words = text.split(/\s+/).filter(w => w.replace(/[^A-Za-z'-]/g, '').length > 1);
+  
+  if (words.length > 1) {
     activeBlockIdx = pendingSelection.idx;
-    loadWord(word.toLowerCase(), null);
+    translateSelection(text);
+  } else if (words[0]) {
+    const word = words[0].replace(/[^A-Za-z'-]/g, '').split("'")[0];
+    if (word && word.length > 1) {
+      activeBlockIdx = pendingSelection.idx;
+      loadWord(word.toLowerCase(), null);
+    }
   }
   selectionToolbar.classList.add('hidden');
+}
+
+const translationCache = new Map();
+
+async function translateSelection(text) {
+  const lookupSeq = ++activeLookupSeq;
+  
+  wordPopover.style.position = 'fixed';
+  wordPopover.style.left = '50%';
+  wordPopover.style.top = '120px';
+  wordPopover.style.transform = 'translateX(-50%)';
+  
+  const cached = translationCache.get(text);
+  if (cached) {
+    wordPopover.classList.remove('hidden');
+    wordPopoverBody.innerHTML = `
+      <div class="word-popover-word-row">
+        <div class="word-popover-word">${escapeHtml(text)}</div>
+      </div>
+      <div class="word-popover-def">${escapeHtml(cached)}</div>
+    `;
+    saveWordBtn.disabled = false;
+    return;
+  }
+  
+  const block = pendingSelection ? currentBlocks[pendingSelection.idx] : null;
+  const blockTranslation = block?.translation;
+  if (blockTranslation && text.trim().toLowerCase() === block.text.trim().toLowerCase()) {
+    translationCache.set(text, blockTranslation);
+    wordPopover.classList.remove('hidden');
+    wordPopoverBody.innerHTML = `
+      <div class="word-popover-word-row">
+        <div class="word-popover-word">${escapeHtml(text)}</div>
+      </div>
+      <div class="word-popover-def">${escapeHtml(blockTranslation)}</div>
+    `;
+    saveWordBtn.disabled = false;
+    return;
+  }
+  
+  wordPopover.classList.remove('hidden');
+  wordPopoverBody.innerHTML = `
+    <div class="word-popover-word-row">
+      <div class="word-popover-word">${escapeHtml(text)}</div>
+    </div>
+    <div class="word-popover-loading">翻译中...</div>
+  `;
+  saveWordBtn.disabled = true;
+  
+  try {
+    const resp = await api('/api/translate/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: [text], source: 'en', target: 'zh-CN' })
+    });
+    if (lookupSeq !== activeLookupSeq) return;
+    
+    const translation = resp.translations?.[0] || '暂无翻译';
+    translationCache.set(text, translation);
+    
+    wordPopoverBody.innerHTML = `
+      <div class="word-popover-word-row">
+        <div class="word-popover-word">${escapeHtml(text)}</div>
+      </div>
+      <div class="word-popover-def">${escapeHtml(translation)}</div>
+    `;
+    saveWordBtn.disabled = false;
+  } catch (e) {
+    wordPopoverBody.innerHTML = `
+      <div class="word-popover-word-row">
+        <div class="word-popover-word">${escapeHtml(text)}</div>
+      </div>
+      <div class="word-popover-error">${escapeHtml(e.message)}</div>
+    `;
+  }
 }
 
 function speakText(text, onEnd) {
@@ -1688,15 +1767,16 @@ async function loadWord(word, anchorEl) {
   activeWord = word;
   wordPopoverBody.innerHTML = '<div class="word-popover-loading">本地查词中...</div>';
   wordPopover.classList.remove('hidden');
-  expandWordBtn.classList.add('hidden');
   saveWordBtn.disabled = true;
 
   if (anchorEl) {
+    wordPopover.style.position = 'absolute';
     wordPopover.style.transform = 'none';
     positionPopover(anchorEl);
   } else {
+    wordPopover.style.position = 'fixed';
     wordPopover.style.left = '50%';
-    wordPopover.style.top = `${120 + window.scrollY}px`;
+    wordPopover.style.top = '120px';
     wordPopover.style.transform = 'translateX(-50%)';
   }
 
@@ -1705,8 +1785,7 @@ async function loadWord(word, anchorEl) {
     if (lookupSeq !== activeLookupSeq) return;
     activeWord = fastData.word;
     activeWordData = fastData;
-    renderPopoverCompact(fastData);
-    saveWordBtn.disabled = savedWords.has((fastData.word || '').toLowerCase());
+    renderPopoverContent(fastData);
   } catch (e) {
     wordPopoverBody.innerHTML = `<div class="word-popover-error">${escapeHtml(e.message)}</div>`;
   }
@@ -1714,38 +1793,54 @@ async function loadWord(word, anchorEl) {
 
 async function saveWord() {
   if (!activeWord || !currentDoc) return;
-  const block = currentBlocks[activeBlockIdx] || currentBlocks[0];
+  const wordLower = activeWord.toLowerCase();
+  const isSaved = savedWords.has(wordLower);
+  
   try {
-    const saved = await api('/api/vocab/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        word: activeWord,
-        source_platform: 'reading',
-        source_video_id: `reading-${currentDoc.id}`,
-        source_url: `/reader?id=${currentDoc.id}`,
-        source_title: currentDoc.title,
-        sentence: block?.text || '',
-        sentence_translation: block?.translation || '',
-      }),
-    });
-    savedWords.add(saved.word.toLowerCase());
-    refreshSavedWordHighlights();
-    if (activeWordEl) {
-      activeWordEl.classList.add('saved-word', 'save-pulse');
-      setTimeout(() => activeWordEl.classList.remove('save-pulse'), 400);
-    }
-    saveWordBtn.textContent = '★ 已收藏';
-    saveWordBtn.disabled = true;
-    showToast(`"${saved.word}" 已加入生词本`, 'success');
-    await refreshVocabStats();
-    if (onboardingStep === 2 && !localStorage.getItem('reader_onboarding_v1_done')) {
-      onboardingStep = 3;
-      showOnboardingStep(3);
-      onboardingOverlay?.classList.remove('hidden');
+    if (isSaved) {
+      await api(`/api/vocab/remove/${encodeURIComponent(activeWord)}`, {
+        method: 'DELETE',
+      });
+      savedWords.delete(wordLower);
+      refreshSavedWordHighlights();
+      if (activeWordEl) {
+        activeWordEl.classList.remove('saved-word');
+      }
+      updateSaveButton(false);
+      showToast(`"${activeWord}" 已从生词本移除`, 'info');
+      await refreshVocabStats();
+    } else {
+      const block = currentBlocks[activeBlockIdx] || currentBlocks[0];
+      const saved = await api('/api/vocab/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: activeWord,
+          source_platform: 'reading',
+          source_video_id: `reading-${currentDoc.id}`,
+          source_url: `/reader?id=${currentDoc.id}`,
+          source_title: currentDoc.title,
+          sentence: block?.text || '',
+          sentence_translation: block?.translation || '',
+        }),
+      });
+      savedWords.add(saved.word.toLowerCase());
+      refreshSavedWordHighlights();
+      if (activeWordEl) {
+        activeWordEl.classList.add('saved-word', 'save-pulse');
+        setTimeout(() => activeWordEl.classList.remove('save-pulse'), 400);
+      }
+      updateSaveButton(true);
+      showToast(`"${saved.word}" 已加入生词本`, 'success');
+      await refreshVocabStats();
+      if (onboardingStep === 2 && !localStorage.getItem('reader_onboarding_v1_done')) {
+        onboardingStep = 3;
+        showOnboardingStep(3);
+        onboardingOverlay?.classList.remove('hidden');
+      }
     }
   } catch (e) {
-    showToast('保存失败: ' + e.message, 'error');
+    showToast('操作失败: ' + e.message, 'error');
   }
 }
 
@@ -1761,9 +1856,6 @@ ttsToggle.addEventListener('click', () => {
 stopTts.addEventListener('click', stopSpeaking);
 saveWordBtn.addEventListener('click', saveWord);
 speakWordBtn.addEventListener('click', () => { if (activeWord) speakText(activeWord); });
-expandWordBtn.addEventListener('click', () => {
-  if (activeWordData) renderPopoverExpanded(activeWordData);
-});
 wordPopoverBody.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-suggest-word]');
   if (!btn) return;
@@ -1780,6 +1872,7 @@ nextChapterBtn?.addEventListener('click', () => {
 document.addEventListener('click', (e) => {
   if (wordPopover.classList.contains('hidden')) return;
   if (wordPopover.contains(e.target)) return;
+  if (selectionToolbar.contains(e.target)) return;
   hidePopover();
 });
 document.addEventListener('click', (e) => {

@@ -1761,19 +1761,16 @@ body.side-open .reader-main {
 .reading-block {
   position: relative;
   display: grid;
-  grid-template-columns: 4px minmax(0, 1fr);
-  gap: 0 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
   margin-bottom: 1.4em;
-  padding: 16px 14px 16px 0;
+  padding: 16px 8px;
   border-radius: 14px;
   border: 1px solid transparent;
   transition: background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 .reading-block-gutter {
-  width: 4px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.06));
-  transition: background 0.22s ease, transform 0.22s ease;
+  display: none;
 }
 .reading-block:hover {
   background: color-mix(in srgb, var(--primary) 10%, transparent);
@@ -1788,11 +1785,6 @@ body.side-open .reader-main {
   background: rgba(144, 238, 144, 0.45);
   border-color: rgba(50, 205, 50, 0.8);
   box-shadow: inset 0 0 0 1px rgba(50, 205, 50, 0.6), 0 0 0 2px rgba(50, 205, 50, 0.25);
-}
-.reading-block.active .reading-block-gutter,
-.reading-block:hover .reading-block-gutter {
-  background: linear-gradient(180deg, var(--primary), var(--accent));
-  transform: scaleY(1.02);
 }
 .reading-block-inner {
   padding-right: 52px;
@@ -1902,19 +1894,18 @@ body.side-open .reader-main {
 }
 
 .reading-block-actions {
-  position: absolute;
-  top: 12px;
-  right: 8px;
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
   opacity: 0;
-  transition: opacity 0.2s, transform 0.2s;
-  transform: translateY(-2px);
+  transition: opacity 0.2s;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 2px;
 }
 .reading-block:hover .reading-block-actions,
 .reading-block.active .reading-block-actions {
   opacity: 1;
-  transform: translateY(0);
 }
 .reading-action-btn {
   width: 34px;
@@ -1952,94 +1943,138 @@ body.side-open .reader-main {
 .word-popover {
   position: absolute;
   z-index: 300;
-  width: min(320px, calc(100vw - 32px));
+  width: min(340px, calc(100vw - 32px));
   background: var(--surface);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 16px;
-  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.35);
-  padding: 16px 16px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 20px 56px rgba(2, 6, 23, 0.4);
+  padding: 18px 18px 16px;
   animation: popIn 0.15s ease;
+  transition: all 0.2s ease;
 }
 .word-popover.hidden { display: none; }
 @keyframes popIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.word-popover-loading,
+.word-popover-error {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 16px 0;
+  text-align: center;
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .word-popover-close {
   position: absolute;
-  top: 8px; right: 10px;
-  background: none;
+  top: 10px; right: 12px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.08);
   border: none;
+  border-radius: 8px;
   color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.word-popover-close:hover {
+  background: rgba(148, 163, 184, 0.18);
 }
 .word-popover-word {
-  font-size: 1.25rem;
-  font-weight: 700;
+  font-size: 1.35rem;
+  font-weight: 800;
   color: var(--primary);
   margin-bottom: 4px;
+  letter-spacing: -0.02em;
 }
 .word-popover-word-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
-}
-.word-popover-source {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(129, 140, 248, 0.12);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
 }
 .word-popover-phonetic {
   font-size: 13px;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.word-popover-phonetic .phonetic-us,
+.word-popover-phonetic .phonetic-uk,
+.word-popover-phonetic .phonetic-other {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.word-popover-phonetic .phonetic-us::before {
+  content: 'US';
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(129, 140, 248, 0.8);
+  font-style: normal;
+}
+.word-popover-phonetic .phonetic-uk::before {
+  content: 'UK';
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(56, 189, 248, 0.8);
+  font-style: normal;
 }
 .word-popover-def {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.word-popover-examples {
+  background: rgba(148, 163, 184, 0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
   margin-bottom: 12px;
 }
-.word-popover-alt {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.word-popover-hint {
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 10px;
-}
-.word-popover-detail {
+.word-popover-example {
   font-size: 13px;
-  line-height: 1.7;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.word-popover-suggestions {
-  margin-top: 12px;
-}
-.word-popover-suggestions strong {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-.word-popover-suggestion-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  line-height: 1.6;
+  color: var(--text);
 }
 .word-popover-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
+  align-items: center;
+}
+.word-popover-actions .btn-secondary,
+.word-popover-actions .btn-primary {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(148, 163, 184, 0.06);
+  color: var(--muted);
+  transition: all 0.15s;
+}
+.word-popover-actions .btn-secondary:hover,
+.word-popover-actions .btn-primary:hover {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text);
+}
+.word-popover-actions .btn-primary.saved {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.15), rgba(251, 146, 60, 0.08));
+  border-color: rgba(251, 146, 60, 0.3);
+  color: var(--accent);
 }
 .word-popover-loading,
 .word-popover-error {
@@ -2053,15 +2088,41 @@ body.side-open .reader-main {
   position: absolute;
   z-index: 250;
   display: flex;
-  gap: 6px;
-  padding: 6px 8px;
-  background: var(--surface);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 12px;
-  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.28);
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.05);
   animation: popIn 0.12s ease;
+  backdrop-filter: blur(12px);
 }
 .selection-toolbar.hidden { display: none; }
+
+.selection-toolbar .btn-primary {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), #f59e0b);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(251, 146, 60, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.selection-toolbar .btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(251, 146, 60, 0.45);
+  filter: brightness(1.05);
+}
+.selection-toolbar .btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(251, 146, 60, 0.3);
+}
 
 .translating-hint {
   color: var(--warning);
@@ -3550,8 +3611,8 @@ body.side-open .reader-main {
   }
   .reading-block-inner { padding-right: 0; }
   .reading-block {
-    grid-template-columns: 3px minmax(0, 1fr);
-    gap: 0 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
     padding-right: 0;
   }
   .reading-block-actions {
