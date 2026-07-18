@@ -1,4 +1,4 @@
-"""Build a portable VideoEnglish folder that can be zipped and shared."""
+"""Build a single-file VideoEnglish executable that can be shared and run by double-clicking."""
 from __future__ import annotations
 
 import os
@@ -10,6 +10,7 @@ import PyInstaller.__main__
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST_DIR = ROOT / "dist" / "VideoEnglish"
+OUTPUT_EXE = ROOT / "dist" / "VideoEnglish.exe"
 WORK_DIR = ROOT / "desktop" / "dist" / "pyinstaller-work-standalone"
 SPEC_DIR = ROOT / "desktop" / "dist" / "pyinstaller-spec-standalone"
 ADD_DATA_SEP = ";" if os.name == "nt" else ":"
@@ -22,6 +23,8 @@ def main() -> None:
 
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
+    if OUTPUT_EXE.exists():
+        OUTPUT_EXE.unlink()
     if WORK_DIR.exists():
         shutil.rmtree(WORK_DIR)
     if SPEC_DIR.exists():
@@ -34,7 +37,7 @@ def main() -> None:
             "VideoEnglish",
             "--noconfirm",
             "--clean",
-            "--onedir",
+            "--onefile",
             "--console",
             "--distpath",
             str(DIST_DIR.parent),
@@ -62,8 +65,8 @@ def main() -> None:
             str(ROOT / "desktop" / "runtime_hook.py"),
         ]
     )
-    print(f"\nStandalone build ready: {DIST_DIR / 'VideoEnglish.exe'}")
-    print("Zip the VideoEnglish folder and share it. Recipients double-click VideoEnglish.exe.")
+    print(f"\nStandalone build ready: {OUTPUT_EXE}")
+    print("Share the single-file EXE. Recipients double-click VideoEnglish.exe.")
 
 
 if __name__ == "__main__":

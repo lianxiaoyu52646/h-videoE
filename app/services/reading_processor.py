@@ -713,7 +713,7 @@ def resume_pending_translations():
 
         with Session(database.engine) as db:
             job = db.get(Job, doc.active_job_id) if doc.active_job_id else None
-        payload = (job.payload or {}) if job else {}
+        payload = (job.payload_json or {}) if job else {}
         if payload.get("mode") == "chapter":
             chapter_index = payload.get("chapter_index", 0)
             start_chapter_translation(

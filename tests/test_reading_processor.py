@@ -249,6 +249,57 @@ def test_import_does_not_auto_translate(client, test_engine):
     assert all(not (b.translation or "").strip() for b in blocks)
 
 
+def test_resume_pending_translations_uses_payload_json(test_engine, monkeypatch):
+    from app.models import Job
+    from app.services import reading_processor
+    from app import database
+
+    with Session(test_engine) as db:
+        doc = ReadingDocument(
+            title="Resume test",
+            translate_status="translating",
+            active_job_id=1,
+            block_count=2,
+            word_count=10,
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        doc_id = doc.id
+        job = Job(
+            id=1,
+            user_id=1,
+            kind="reading_translate",
+            target_type="reading_document",
+            target_id=doc_id,
+            payload_json={"mode": "chapter", "chapter_index": 2, "prefetch_next": True},
+        )
+        db.add(job)
+        db.commit()
+
+    monkeypatch.setattr(database, "engine", test_engine)
+    monkeypatch.setattr(reading_processor, "engine", test_engine)
+
+    calls = {}
+
+    def _fake_start(doc_id, chapter_index, prefetch_next=False, job_id=None):
+        calls["doc_id"] = doc_id
+        calls["chapter_index"] = chapter_index
+        calls["prefetch_next"] = prefetch_next
+        calls["job_id"] = job_id
+
+    monkeypatch.setattr(reading_processor, "start_chapter_translation", _fake_start)
+
+    reading_processor.resume_pending_translations()
+
+    assert calls == {
+        "doc_id": doc_id,
+        "chapter_index": 2,
+        "prefetch_next": True,
+        "job_id": 1,
+    }
+
+
 def test_translate_chapter_api(client, test_engine, monkeypatch):
     doc_id = _create_doc(client, "One.\n\nTwo.\n\nThree.")
 
