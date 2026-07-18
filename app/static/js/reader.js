@@ -89,6 +89,7 @@ let sseRetryCount = 0;
 let sseRetryTimer = null;
 let toastTimer = null;
 let activeLookupSeq = 0;
+let manualSelect = false;
 const CHAPTER_CHUNK = 80;
 let lazyRenderedUntil = 0;
 let totalBlockCount = 0;
@@ -264,8 +265,6 @@ function scheduleSseReconnect() {
 
 function goToNote(note) {
   if (!note) return;
-  notesPanel.classList.add('hidden');
-  document.body.classList.remove('side-open');
   void jumpToBlockIndex(note.block_index, note.block_id, note.highlight_id);
 }
 
@@ -386,7 +385,9 @@ function setupScrollObserver() {
         if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
           const idx = parseInt(entry.target.dataset.index, 10);
           if (idx >= 0) {
-            highlightBlock(idx);
+            if (!manualSelect) {
+              highlightBlock(idx);
+            }
             scheduleSaveProgress(idx);
             if (ttsEnabled) speakBlock(idx);
           }
@@ -401,7 +402,12 @@ function setupScrollObserver() {
 function highlightBlock(idx) {
   activeBlockIdx = idx;
   blockList.querySelectorAll('.reading-block').forEach((el) => {
-    el.classList.toggle('active', parseInt(el.dataset.index, 10) === idx);
+    const elIdx = parseInt(el.dataset.index, 10);
+    if (elIdx === idx) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
   });
   tocList?.querySelectorAll('.toc-chapter, .toc-item').forEach((el) => {
     if (el.classList.contains('toc-chapter')) {
@@ -489,6 +495,21 @@ function buildChapters() {
 
 function renderToc() {
   if (!tocList) return;
+  
+  // 添加hover管理，确保同时只高亮一个
+  const addHoverListeners = (items) => {
+    items.forEach((btn) => {
+      btn.addEventListener('mouseenter', () => {
+        // hover时，移除其他所有active
+        items.forEach((item) => item.classList.remove('active'));
+      });
+      btn.addEventListener('mouseleave', () => {
+        // 离开时恢复active状态
+        renderToc();
+      });
+    });
+  };
+
   if (chapters.length) {
     tocList.innerHTML = chapters.map((ch) => `
       <button class="toc-chapter${currentChapterIndex === ch.chapter_index ? ' active' : ''}"
@@ -497,13 +518,13 @@ function renderToc() {
         <span class="toc-chapter-range">${ch.block_count} 段 · 全书第 ${ch.start_block + 1}–${ch.end_block + 1} 段</span>
       </button>
     `).join('');
-    tocList.querySelectorAll('.toc-chapter').forEach((btn) => {
+    const buttons = tocList.querySelectorAll('.toc-chapter');
+    buttons.forEach((btn) => {
       btn.addEventListener('click', async () => {
-        tocPanel?.classList.add('hidden');
-        document.body.classList.remove('side-open');
         await loadChapter(parseInt(btn.dataset.chapter, 10));
       });
     });
+    addHoverListeners(buttons);
     return;
   }
   tocList.innerHTML = currentBlocks.map((b, i) => {
@@ -516,14 +537,14 @@ function renderToc() {
       ${hasZh ? '' : '<span class="toc-pending">译</span>'}
     </button>`;
   }).join('');
-  tocList.querySelectorAll('.toc-item').forEach((btn) => {
+  const buttons = tocList.querySelectorAll('.toc-item');
+  buttons.forEach((btn) => {
     btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.toc, 10);
-      tocPanel?.classList.add('hidden');
-      document.body.classList.remove('side-open');
       await gotoBlockIndex(idx);
     });
   });
+  addHoverListeners(buttons);
 }
 
 function createBlockElement(block, idx) {
@@ -542,6 +563,9 @@ function createBlockElement(block, idx) {
       <button class="reading-action-btn" data-note="${idx}" title="记笔记">📝</button>
     </div>
   `;
+  
+  
+  
   item.querySelector('[data-speak]').addEventListener('click', (e) => { e.stopPropagation(); speakBlock(idx); });
   item.querySelector('[data-note]').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -561,9 +585,11 @@ function createBlockElement(block, idx) {
   });
   item.addEventListener('click', (e) => {
     const wordEl = e.target.closest('.clickable-word');
+    manualSelect = true;
+    activeBlockIdx = idx;
+    highlightBlock(idx);
     if (wordEl) {
       e.stopPropagation();
-      activeBlockIdx = idx;
       loadWord(wordEl.dataset.word, wordEl);
     }
   });
@@ -662,6 +688,9 @@ function refreshBlockAt(idx) {
   const old = blockList.querySelector(`.reading-block[data-index="${idx}"]`);
   if (!old) return;
   const newEl = createBlockElement(currentBlocks[idx], idx);
+  if (old.classList.contains('active')) {
+    newEl.classList.add('active');
+  }
   old.replaceWith(newEl);
   scrollObserver?.observe(newEl);
 }
@@ -778,8 +807,6 @@ function renderBookmarks() {
   bookmarksList.querySelectorAll('[data-goto-bm]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const idx = parseInt(btn.dataset.gotoBm, 10);
-      bookmarksPanel?.classList.add('hidden');
-      document.body.classList.remove('side-open');
       await gotoBlockIndex(idx);
     });
   });
@@ -1635,7 +1662,9 @@ function speakText(text, onEnd) {
 function speakBlock(idx) {
   const block = currentBlocks[idx];
   if (!block) return;
-  highlightBlock(idx);
+  if (!manualSelect) {
+    highlightBlock(idx);
+  }
   speakText(block.text, () => {
     if (ttsEnabled && idx + 1 < currentBlocks.length) speakBlock(idx + 1);
     else {
@@ -1753,6 +1782,16 @@ document.addEventListener('click', (e) => {
   if (wordPopover.contains(e.target)) return;
   hidePopover();
 });
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.reading-block')) {
+    manualSelect = false;
+    activeBlockIdx = -1;
+    blockList.querySelectorAll('.reading-block').forEach((el) => {
+      el.classList.remove('active');
+    });
+  }
+});
+
 function openSidePanel(panel) {
   tocPanel?.classList.add('hidden');
   notesPanel?.classList.add('hidden');
