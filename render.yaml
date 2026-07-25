@@ -1,10 +1,11 @@
-# Render Blueprint — Web on Render, database on Neon (set DATABASE_URL in Dashboard)
+# Render Blueprint — Web on Render + Neon (user data only)
+# Word content: curated JSON on disk. ECDICT: dictionary.db / ecdict.csv on disk.
 services:
   - type: web
     name: wordpop
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python scripts/ensure_dictionary_db.py
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: APP_MODE
@@ -12,6 +13,8 @@ services:
       - key: LOCAL_AUTO_USER
         value: "0"
       - key: INLINE_WORKER
+        value: "1"
+      - key: AUTO_INSTALL_WORDBOOKS
         value: "1"
       - key: APP_NAME
         value: WordPop 单词泡泡

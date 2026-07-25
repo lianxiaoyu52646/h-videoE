@@ -7,13 +7,32 @@ from sqlmodel import Session, func, select
 
 from app import crud, models, security
 from app.services import dictionary
+from app.services import wordbook_json_store
+
+# Study-feed item ids for JSON-backed books: VIRTUAL_ID_BASE + offset
+VIRTUAL_ID_BASE = 50_000_000
 
 
 def _user_id() -> int:
     return security.get_current_user_id(required=True)
 
 
-def _total_entries(session: Session, wordbook_id: int) -> int:
+def _catalog_for_wordbook(session: Session, wordbook_id: int) -> models.WordBookCatalog | None:
+    return session.exec(
+        select(models.WordBookCatalog).where(
+            models.WordBookCatalog.installed_wordbook_id == wordbook_id
+        )
+    ).first()
+
+
+def _json_asset_for_wordbook(session: Session, wordbook_id: int) -> str | None:
+    row = _catalog_for_wordbook(session, wordbook_id)
+    if row and row.asset_file and wordbook_json_store.asset_path(row.asset_file).exists():
+        return row.asset_file
+    return None
+
+
+def _sql_entry_count(session: Session, wordbook_id: int) -> int:
     return int(
         session.exec(
             select(func.count(models.WordBookEntry.id)).where(
@@ -22,6 +41,47 @@ def _total_entries(session: Session, wordbook_id: int) -> int:
         ).one()
         or 0
     )
+
+
+def _total_entries(session: Session, wordbook_id: int) -> int:
+    asset = _json_asset_for_wordbook(session, wordbook_id)
+    if asset:
+        return len(wordbook_json_store.load_entries(asset))
+    cat = _catalog_for_wordbook(session, wordbook_id)
+    if cat and cat.entry_count:
+        return int(cat.entry_count)
+    return _sql_entry_count(session, wordbook_id)
+
+
+def _ensure_sparse_entry(
+    session: Session,
+    wordbook_id: int,
+    *,
+    word: str,
+    translation: str = "",
+    pronunciation: str = "",
+    definition: str = "",
+) -> models.WordBookEntry:
+    """Create/find a single WordBookEntry for starring (not full-book import)."""
+    existing = session.exec(
+        select(models.WordBookEntry).where(
+            models.WordBookEntry.wordbook_id == wordbook_id,
+            models.WordBookEntry.word == word,
+        )
+    ).first()
+    if existing:
+        return existing
+    entry = models.WordBookEntry(
+        wordbook_id=wordbook_id,
+        word=word,
+        translation=translation or None,
+        pronunciation=pronunciation or None,
+        definition=definition or "",
+    )
+    session.add(entry)
+    session.commit()
+    session.refresh(entry)
+    return entry
 
 
 def get_or_create_memory(
@@ -209,39 +269,69 @@ def study_feed(
     else:
         start = max(0, min(int(offset), total))
 
-    entries = session.exec(
-        select(models.WordBookEntry)
-        .where(models.WordBookEntry.wordbook_id == wordbook_id)
-        .order_by(models.WordBookEntry.id.asc())
-        .offset(start)
-        .limit(limit)
-    ).all()
-
-    entry_ids = [e.id for e in entries]
-    starred_ids: set[int] = set()
-    if entry_ids:
-        rows = session.exec(
-            select(models.WordBookMemoryWord.entry_id).where(
-                models.WordBookMemoryWord.user_id == uid,
-                models.WordBookMemoryWord.entry_id.in_(entry_ids),
-                models.WordBookMemoryWord.status == "unknown",
-            )
+    asset = _json_asset_for_wordbook(session, wordbook_id)
+    if asset:
+        page, total = wordbook_json_store.slice_entries(asset, start, limit)
+        words = [str(e.get("word") or "") for e in page]
+        starred_words: set[str] = set()
+        if words:
+            rows = session.exec(
+                select(models.WordBookMemoryWord.word).where(
+                    models.WordBookMemoryWord.user_id == uid,
+                    models.WordBookMemoryWord.wordbook_id == wordbook_id,
+                    models.WordBookMemoryWord.word.in_(words),
+                    models.WordBookMemoryWord.status == "unknown",
+                )
+            ).all()
+            starred_words = {str(x) for x in rows}
+        items = [
+            {
+                "id": VIRTUAL_ID_BASE + start + i,
+                "word": e.get("word") or "",
+                "pronunciation": e.get("pronunciation") or "",
+                "translation": e.get("translation") or e.get("definition") or "",
+                "definition": e.get("definition") or "",
+                "starred": (e.get("word") or "") in starred_words,
+                "offset": start + i,
+                "index": start + i + 1,
+                "source": "json",
+            }
+            for i, e in enumerate(page)
+        ]
+    else:
+        entries = session.exec(
+            select(models.WordBookEntry)
+            .where(models.WordBookEntry.wordbook_id == wordbook_id)
+            .order_by(models.WordBookEntry.id.asc())
+            .offset(start)
+            .limit(limit)
         ).all()
-        starred_ids = {int(x) for x in rows}
+        entry_ids = [e.id for e in entries]
+        starred_ids: set[int] = set()
+        if entry_ids:
+            rows = session.exec(
+                select(models.WordBookMemoryWord.entry_id).where(
+                    models.WordBookMemoryWord.user_id == uid,
+                    models.WordBookMemoryWord.entry_id.in_(entry_ids),
+                    models.WordBookMemoryWord.status == "unknown",
+                )
+            ).all()
+            starred_ids = {int(x) for x in rows}
+        items = [
+            {
+                "id": e.id,
+                "word": e.word,
+                "pronunciation": e.pronunciation or "",
+                "translation": e.translation or e.definition or "",
+                "definition": e.definition or "",
+                "starred": e.id in starred_ids,
+                "offset": start + i,
+                "index": start + i + 1,
+                "source": "sql",
+            }
+            for i, e in enumerate(entries)
+        ]
 
-    items = [
-        {
-            "id": e.id,
-            "word": e.word,
-            "pronunciation": e.pronunciation or "",
-            "translation": e.translation or e.definition or "",
-            "definition": e.definition or "",
-            "starred": e.id in starred_ids,
-            "offset": start + i,
-            "index": start + i + 1,
-        }
-        for i, e in enumerate(entries)
-    ]
     end = start + len(items)
     return {
         "wordbook_id": wordbook_id,
@@ -278,6 +368,34 @@ def save_cursor(
     return {"ok": True, "progress": progress_payload(session, memory)}
 
 
+def _resolve_entry(
+    session: Session,
+    wordbook_id: int,
+    entry_id: int,
+) -> models.WordBookEntry | None:
+    entry = session.get(models.WordBookEntry, entry_id)
+    if entry and entry.wordbook_id == wordbook_id:
+        return entry
+    if entry_id < VIRTUAL_ID_BASE:
+        return None
+    offset = int(entry_id) - VIRTUAL_ID_BASE
+    asset = _json_asset_for_wordbook(session, wordbook_id)
+    if not asset:
+        return None
+    entries = wordbook_json_store.load_entries(asset)
+    if offset < 0 or offset >= len(entries):
+        return None
+    raw = entries[offset]
+    return _ensure_sparse_entry(
+        session,
+        wordbook_id,
+        word=str(raw.get("word") or ""),
+        translation=str(raw.get("translation") or ""),
+        pronunciation=str(raw.get("pronunciation") or ""),
+        definition=str(raw.get("definition") or ""),
+    )
+
+
 def star_entry(
     session: Session,
     wordbook_id: int,
@@ -286,11 +404,11 @@ def star_entry(
     starred: bool = True,
 ) -> dict:
     uid = _user_id()
-    entry = session.get(models.WordBookEntry, entry_id)
-    if not entry or entry.wordbook_id != wordbook_id:
-        raise KeyError("entry not found")
     book = crud.get_wordbook(session, wordbook_id) or crud.get_wordbook(session, wordbook_id, user_id=uid)
     memory = get_or_create_memory(session, wordbook_id, user_id=uid)
+    entry = _resolve_entry(session, wordbook_id, entry_id)
+    if not entry:
+        raise KeyError("entry not found")
 
     if starred:
         _upsert_memory_word(
@@ -361,17 +479,9 @@ def commit_batch(
         seen.add(eid)
         unique_ids.append(eid)
 
-    entries = session.exec(
-        select(models.WordBookEntry).where(
-            models.WordBookEntry.wordbook_id == wordbook_id,
-            models.WordBookEntry.id.in_(unique_ids),
-        )
-    ).all()
-    by_id = {e.id: e for e in entries}
-
     last_entry_id = memory.last_entry_id
     for eid in unique_ids:
-        entry = by_id.get(eid)
+        entry = _resolve_entry(session, wordbook_id, eid)
         if not entry:
             continue
         status = "unknown" if eid in starred_set else "known"
@@ -400,7 +510,6 @@ def commit_batch(
                 },
             )
 
-    # Advance browse bookmark; keep within [0, total-1] so reopen can always show a word
     total = _total_entries(session, wordbook_id)
     memory.cursor_offset = min(
         max(0, total - 1) if total else 0,

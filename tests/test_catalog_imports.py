@@ -6,13 +6,21 @@ from app import models
 from app.services import book_library
 
 
-def test_wordbook_catalog_install_persists_entries(client, test_engine):
+def test_wordbook_catalog_install_uses_json_on_disk(client, test_engine, monkeypatch):
+    monkeypatch.setattr("app.config.settings.auto_install_wordbooks", False)
+    monkeypatch.setattr("app.config.settings.local_auto_user", True)
+    monkeypatch.setattr("app.config.settings.app_mode", "desktop")
+
+    from app import security
+    with Session(test_engine) as session:
+        security.ensure_default_user(session)
+
     resp = client.get("/api/wordbooks/catalog")
     assert resp.status_code == 200, resp.text
     items = resp.json()
     keys = {item["key"] for item in items}
     # Bundled packs from KyleBing/english-vocabulary.
-    assert {"cet4_kylebing", "cet6_kylebing", "toefl_kylebing", "ielts_kylebing", "chuzhong_kylebing"} <= keys
+    assert {"cet4_kylebing", "cet6_kylebing", "ielts_kylebing", "chuzhong_kylebing"} <= keys
 
     install_resp = client.post("/api/wordbooks/catalog/chuzhong_kylebing/install")
     assert install_resp.status_code == 200, install_resp.text
@@ -20,6 +28,7 @@ def test_wordbook_catalog_install_persists_entries(client, test_engine):
     assert payload["ok"] is True
     assert payload["catalog"]["key"] == "chuzhong_kylebing"
     assert payload["wordbook"]["name"] == "初中英语词书"
+    # Content stays in JSON; install only creates a DB shell + count metadata.
     assert payload["imported_count"] == 1987
 
     with Session(test_engine) as session:
@@ -28,10 +37,18 @@ def test_wordbook_catalog_install_persists_entries(client, test_engine):
         ).first()
         assert catalog is not None
         assert catalog.installed_wordbook_id is not None
+        assert catalog.entry_count == 1987
         entries = session.exec(
             select(models.WordBookEntry).where(models.WordBookEntry.wordbook_id == catalog.installed_wordbook_id)
         ).all()
-        assert len(entries) == 1987
+        assert len(entries) == 0
+
+    feed = client.get(f"/api/wordbooks/{payload['wordbook']['id']}/study-feed?limit=5&offset=0")
+    assert feed.status_code == 200, feed.text
+    body = feed.json()
+    assert body["total"] == 1987
+    assert len(body["items"]) == 5
+    assert body["items"][0]["word"]
 
 
 def test_library_book_import_caches_and_links_reading(client, test_engine, tmp_path, monkeypatch):

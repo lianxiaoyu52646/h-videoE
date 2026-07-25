@@ -12,15 +12,33 @@
    - `SECRET_KEY=<random>`
    - `INLINE_WORKER=1`
    - `DATABASE_URL=sqlite:///./db.sqlite3`
-4. Open `https://<service>.onrender.com/` → mobile app (`/app`).
-5. 用户名密码注册/登录 → 词书刷词 / 阅读 / 生词练习 / PK。
+4. 配置 Neon 数据库（必做）：
+   - Neon 复制连接串（Connection pooling 可开）
+   - Render Dashboard → 你的 Web 服务（一般叫 `wordpop`）
+   - 左侧 **Environment**
+   - **Add Environment Variable**
+   - Key: `DATABASE_URL`
+   - Value: 粘贴 Neon 连接串（建议只保留 `?sslmode=require`）
+   - Save → **Manual Deploy** → Deploy latest commit
+5. Open `https://<service>.onrender.com/` → mobile app (`/app`).
+6. 用户名密码注册/登录 → 词书刷词 / 阅读 / 生词练习 / PK。
 
-Note: Free Render disk is ephemeral — SQLite data may reset on redeploy/restart. Fine for demo; not for permanent production data.
+若 Blueprint 创建时弹出 “Environment Variables” / “sync: false”，那里填 `DATABASE_URL` 即可。
 
-## Dictionary asset
 
-Keep `app/assets/dictionaries/dictionary.db` in the deploy image (already under `app/assets`).
-If the DB is too large for git, upload it in the build step or mount from object storage and set the path accordingly.
+## Dictionary + wordbooks (disk, not Neon)
+
+- **ECDICT**: ship `app/assets/dictionaries/dictionary.db` (preferred) or `ecdict.csv` at repo root;
+  build runs `python scripts/ensure_dictionary_db.py` to convert CSV → SQLite on the Render disk.
+- **Wordbooks**: curated JSON under `app/assets/curated/wordbooks/*.json`. Study feed reads JSON;
+  Neon/Postgres only stores catalog shells + user progress/stars (sparse rows when starring).
+- **Neon `DATABASE_URL`**: accounts, reading progress, PK, vocab cards, wordbook memory — not full ECDICT/word lists.
+
+## Neon DATABASE_URL
+
+1. Neon → copy connection string (`?sslmode=require`)
+2. Render → Web service `wordpop` → Environment → `DATABASE_URL`
+3. Manual Deploy
 
 ## Why not Vercel alone
 

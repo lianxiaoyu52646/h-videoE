@@ -9,7 +9,7 @@ from sqlmodel import Session, func, select
 from sqlalchemy.exc import OperationalError
 
 from app import crud, models, security
-from app.services.wordbook_entry_format import normalize_catalog_entry
+from app.services import wordbook_json_store
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,11 @@ def install_catalog_wordbook(
     user_id: int | None = None,
     force: bool = False,
 ) -> tuple[models.WordBookCatalog, models.WordBook, int]:
+    """Link a catalog wordbook to a WordBook shell.
+
+    Word content stays in curated JSON on disk (not inserted into Neon/Postgres).
+    Only metadata + user progress/stars live in the SQL database.
+    """
     uid = user_id if user_id is not None else _current_user_id()
     token = security.set_current_user(uid)
     try:
@@ -172,9 +177,11 @@ def install_catalog_wordbook(
         asset_path = _resolve_asset_path(row.asset_file)
         if not asset_path.exists():
             raise FileNotFoundError(asset_path)
-        payload = json.loads(asset_path.read_text(encoding="utf-8"))
-        entries = [normalize_catalog_entry(entry) for entry in (payload.get("entries") or [])]
-        expected = len(entries)
+
+        from app.services import wordbook_json_store
+
+        entries = wordbook_json_store.load_entries(row.asset_file)
+        expected = len(entries) or int(row.entry_count or 0)
 
         wordbook = None
         if row.installed_wordbook_id:
@@ -196,28 +203,23 @@ def install_catalog_wordbook(
             session.commit()
             session.refresh(wordbook)
 
-        current = _entry_count_for_wordbook(session, wordbook.id)
-        if not force and expected > 0 and current >= int(expected * 0.98):
-            row.installed_wordbook_id = wordbook.id
-            row.installed_at = row.installed_at or datetime.utcnow()
-            row.updated_at = datetime.utcnow()
-            row.entry_count = current
-            session.add(row)
-            session.commit()
-            session.refresh(row)
-            session.refresh(wordbook)
-            return row, wordbook, current
-
-        imported_count = crud.add_wordbook_entries(session, wordbook.id, entries)
+        # Metadata-only install: do not bulk-insert WordBookEntry rows.
         row.installed_wordbook_id = wordbook.id
-        row.installed_at = datetime.utcnow()
+        row.installed_at = row.installed_at or datetime.utcnow()
         row.updated_at = datetime.utcnow()
-        row.entry_count = _entry_count_for_wordbook(session, wordbook.id)
+        row.entry_count = expected
         session.add(row)
         session.commit()
         session.refresh(row)
         session.refresh(wordbook)
-        return row, wordbook, imported_count
+        logger.info(
+            "catalog wordbook ready (json on disk) key=%s user=%s entries=%s wordbook_id=%s",
+            catalog_key,
+            uid,
+            expected,
+            wordbook.id,
+        )
+        return row, wordbook, expected
     finally:
         security.reset_current_user(token)
 
@@ -227,7 +229,7 @@ def ensure_all_catalog_installed(
     *,
     user_id: int | None = None,
 ) -> dict:
-    """Install every bundled KyleBing wordbook into SQLite for the user."""
+    """Ensure every bundled wordbook has a DB shell; content remains JSON on disk."""
     uid = user_id if user_id is not None else _current_user_id()
     ensure_catalog(session)
     _repair_stale_installations(session, uid)
@@ -238,13 +240,13 @@ def ensure_all_catalog_installed(
     total_entries = 0
     for row in rows:
         try:
-            _, wordbook, _count = install_catalog_wordbook(session, row.key, user_id=uid)
-            total_entries += _entry_count_for_wordbook(session, wordbook.id)
+            _, _wordbook, count = install_catalog_wordbook(session, row.key, user_id=uid)
+            total_entries += int(count or 0)
             installed += 1
         except Exception:
             logger.exception("failed to preinstall wordbook key=%s user=%s", row.key, uid)
     logger.info(
-        "bundled wordbooks ready user=%s books=%s entries=%s",
+        "bundled wordbooks ready (json) user=%s books=%s entries=%s",
         uid,
         installed,
         total_entries,
