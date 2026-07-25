@@ -6,14 +6,16 @@
 2. In Render: **New > Blueprint** and select `render.yaml`, or create a Web Service manually:
    - Build: `pip install -r requirements.txt`
    - Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-3. Attach a Postgres database and set `DATABASE_URL` (Render injects it automatically with Blueprint).
-4. Env vars:
+3. Env vars (Blueprint 已写好)：
    - `APP_MODE=web`
    - `LOCAL_AUTO_USER=0`
    - `SECRET_KEY=<random>`
    - `INLINE_WORKER=1`
-5. Open `https://<service>.onrender.com/` → mobile app (`/app`).
-6. 用户名密码注册/登录 → 词书刷词 / 阅读 / 生词练习 / PK。
+   - `DATABASE_URL=sqlite:///./db.sqlite3`
+4. Open `https://<service>.onrender.com/` → mobile app (`/app`).
+5. 用户名密码注册/登录 → 词书刷词 / 阅读 / 生词练习 / PK。
+
+Note: Free Render disk is ephemeral — SQLite data may reset on redeploy/restart. Fine for demo; not for permanent production data.
 
 ## Dictionary asset
 

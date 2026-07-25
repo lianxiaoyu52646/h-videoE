@@ -1,10 +1,4 @@
-# Render Blueprint — https://render.com/docs/blueprint-spec
-databases:
-  - name: wordpop-db
-    plan: free
-    databaseName: wordpop
-    user: wordpop
-
+# Render Blueprint — SQLite only (no Postgres)
 services:
   - type: web
     name: wordpop
@@ -24,8 +18,6 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: DATABASE_URL
-        fromDatabase:
-          name: wordpop-db
-          property: connectionString
+        value: sqlite:///./db.sqlite3
       - key: PYTHON_VERSION
         value: "3.11.9"
