@@ -1391,9 +1391,21 @@ def get_wordbook(session: Session, wordbook_id: int, user_id: int | None = None)
 
 
 def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
-    entry_count = session.exec(
-        select(func.count(models.WordBookEntry.id)).where(models.WordBookEntry.wordbook_id == wordbook.id)
-    ).one()
+    entry_count = int(
+        session.exec(
+            select(func.count(models.WordBookEntry.id)).where(models.WordBookEntry.wordbook_id == wordbook.id)
+        ).one()
+        or 0
+    )
+    # JSON-backed catalog books keep words on disk; use catalog.entry_count.
+    if entry_count == 0:
+        cat = session.exec(
+            select(models.WordBookCatalog).where(
+                models.WordBookCatalog.installed_wordbook_id == wordbook.id
+            )
+        ).first()
+        if cat and cat.entry_count:
+            entry_count = int(cat.entry_count)
     learned_count = session.exec(
         select(func.count(models.VocabItem.id)).where(models.VocabItem.wordbook_id == wordbook.id)
     ).one()

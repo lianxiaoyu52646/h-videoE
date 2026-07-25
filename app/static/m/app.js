@@ -8,7 +8,7 @@
     shell: null,
     readings: [],
     library: [],
-    wordbooks: [],
+    wordbooks: null,
     vocab: [],
     due: [],
     eyecare: localStorage.getItem('wp_eyecare') === '1',
@@ -484,7 +484,13 @@
 
   // ---------- Wordbooks (star + infinite scroll) ----------
   async function loadBooks() {
-    state.wordbooks = await api('/api/wordbooks');
+    try {
+      state.wordbooks = await api('/api/wordbooks');
+    } catch (e) {
+      state.wordbooks = [];
+      toast(e.message || '词书加载失败');
+      throw e;
+    }
   }
 
   function bookCoverMeta(index, name) {
@@ -504,14 +510,17 @@
     const root = $('#view-books');
     if (state.study) return renderStudy(root);
 
-    const books = state.wordbooks || [];
+    const books = state.wordbooks;
+    const loading = books == null;
+    const list = books || [];
     root.innerHTML = `
       <div class="m-hero wb-hero">
         <h1>词书闯关</h1>
         <p>点星=不会 · 不点=会</p>
       </div>
       <div class="wb-list">
-        ${books.length ? books.map((b, i) => {
+        ${loading ? '<div class="m-card"><p class="m-muted">词书加载中…</p></div>'
+          : (list.length ? list.map((b, i) => {
           const cover = bookCoverMeta(i, b.name);
           const pct = Math.min(100, Number(b.study_percent) || 0);
           const label = b.study_label || `0 / ${b.entry_count || 0}`;
@@ -535,7 +544,7 @@
               </div>
               <span class="wb-cta">${cta}</span>
             </button>`;
-        }).join('') : '<div class="m-card"><p class="m-muted">词书加载中…</p></div>'}
+        }).join('') : '<div class="m-card"><p class="m-muted">暂无词书，请重新登录或稍后重试</p></div>')}
       </div>`;
     $$('[data-study]').forEach((btn) => {
       btn.addEventListener('click', () => startStudy(Number(btn.dataset.study)));

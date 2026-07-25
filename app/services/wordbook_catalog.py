@@ -178,14 +178,25 @@ def install_catalog_wordbook(
         if not asset_path.exists():
             raise FileNotFoundError(asset_path)
 
-        from app.services import wordbook_json_store
+        # Prefer manifest count — do NOT parse multi‑MB JSON on every list/install.
+        expected = int(row.entry_count or 0)
+        if not expected:
+            from app.services import wordbook_json_store
 
-        entries = wordbook_json_store.load_entries(row.asset_file)
-        expected = len(entries) or int(row.entry_count or 0)
+            expected = len(wordbook_json_store.load_entries(row.asset_file))
 
         wordbook = None
         if row.installed_wordbook_id:
             wordbook = crud.get_wordbook(session, row.installed_wordbook_id, user_id=uid)
+
+        if wordbook and not force:
+            if row.entry_count != expected and expected:
+                row.entry_count = expected
+                row.updated_at = datetime.utcnow()
+                session.add(row)
+                session.commit()
+                session.refresh(row)
+            return row, wordbook, int(row.entry_count or expected or 0)
 
         if not wordbook:
             wordbook = crud.create_wordbook(
@@ -203,7 +214,6 @@ def install_catalog_wordbook(
             session.commit()
             session.refresh(wordbook)
 
-        # Metadata-only install: do not bulk-insert WordBookEntry rows.
         row.installed_wordbook_id = wordbook.id
         row.installed_at = row.installed_at or datetime.utcnow()
         row.updated_at = datetime.utcnow()
