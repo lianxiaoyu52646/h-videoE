@@ -93,7 +93,10 @@
     $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${tab}`));
     if (tab === 'read') renderRead();
     if (tab === 'books') renderBooks();
-    if (tab === 'vocab') renderVocab();
+    if (tab === 'vocab') {
+      renderVocab();
+      refreshVocab().catch(() => {});
+    }
     if (tab === 'pk') renderPk();
     if (tab === 'mine') {
       renderMine();
@@ -462,22 +465,27 @@
       $('#knowWord').onclick = () => { closeModal(); toast('继续读～'); };
       $('#unknowWord').onclick = async () => {
         const line = span.closest('.reader-line');
-        await api('/api/vocab/save', {
-          method: 'POST',
-          body: {
-            word: data.word || word,
-            source_platform: 'reading',
-            source_video_id: `reading-${state.reader.doc.id}`,
-            source_title: state.reader.doc.title,
-            sentence: line?.querySelector('.reader-en')?.textContent || '',
-            sentence_translation: line?.querySelector('.reader-zh')?.textContent || '',
-            translation: data.translation,
-            definition: data.definition,
-            pronunciation: data.pronunciation,
-          },
-        });
-        closeModal();
-        toast('已进生词本');
+        try {
+          await api('/api/vocab/save', {
+            method: 'POST',
+            body: {
+              word: data.word || word,
+              source_platform: 'reading',
+              source_video_id: `reading-${state.reader.doc.id}`,
+              source_title: state.reader.doc.title,
+              sentence: line?.querySelector('.reader-en')?.textContent || '',
+              sentence_translation: line?.querySelector('.reader-zh')?.textContent || '',
+              translation: data.translation,
+              definition: data.definition,
+              pronunciation: data.pronunciation,
+            },
+          });
+          closeModal();
+          toast('已进生词本');
+          await refreshVocab();
+        } catch (err) {
+          toast(err.message || '加入生词本失败');
+        }
       };
     } catch (err) { toast(err.message); }
   }
@@ -661,6 +669,7 @@
             updateStudyProgressUi();
           }
           toast(on ? '已进生词本' : '已取消');
+          await refreshVocab();
         } catch (e) { toast(e.message); }
       });
     });
@@ -980,6 +989,12 @@
     state.due = due;
   }
 
+  /** Reload vocab cache; re-render if user is on the 生词 tab. */
+  async function refreshVocab() {
+    await loadVocab();
+    if (state.tab === 'vocab') renderVocab();
+  }
+
   function renderVocab() {
     const root = $('#view-vocab');
     const due = state.due || [];
@@ -1119,10 +1134,8 @@
       if (msg.data) state.pk.room = msg.data;
       if (msg.event === 'finished') {
         const n = (msg.data?.missed_words || []).length;
-        if (n) {
-          toast(`${n} 个不会的词已进生词本`);
-          loadVocab().catch(() => {});
-        }
+        if (n) toast(`${n} 个不会的词已进生词本`);
+        refreshVocab().catch(() => {});
       }
       if (state.tab === 'pk') renderPk();
     };

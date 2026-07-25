@@ -205,3 +205,20 @@ pytest
 本项目为 **个人自用** 工具。内置词书数据来源于开源词库（如 kylebing-vocab），书籍资源来自公开仓库。
 
 打包分发时请遵守相关平台服务条款（B 站、YouTube 等）及翻译 API 使用规范。
+
+
+阅读、词书模块数据来源
+100 篇小说
+优先读仓库里的 app/assets/books/gutenberg/*.txt。本地有就不再去 Gutenberg 下载；只有缺文件时才会退回下载。
+
+词典
+构建时跑 ensure_dictionary_db.py：
+
+已有可用的 dictionary.db → 直接用
+否则用本地 ecdict.csv 转成 dictionary.db
+再没有就下载 ECDICT 再转换
+运行时查词读的是磁盘上的 dictionary.db（或 csv），不会进 Neon。
+词书
+单词内容从 app/assets/curated/wordbooks/*.json 读。Neon 只存用户壳子、进度、星标等，不整本导入词条。
+
+Neon：用户、登录、阅读进度、PK、词书进度等用户数据。
