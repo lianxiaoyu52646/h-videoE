@@ -21,6 +21,10 @@ class JoinRoomRequest(BaseModel):
     code: str
 
 
+class RoomCodeRequest(BaseModel):
+    code: str
+
+
 def _user_label(user: models.User) -> str:
     return user.username or user.display_name or f"玩家{user.id}"
 
@@ -55,6 +59,29 @@ async def join_pk_room(
     return pk_rooms.public_state(room, for_user=user.id)
 
 
+@router.post("/api/pk/rooms/leave")
+async def leave_pk_room(
+    body: RoomCodeRequest,
+    user: models.User = Depends(security.get_current_user),
+):
+    return await pk_rooms.leave_room(code=body.code, user_id=user.id)
+
+
+@router.post("/api/pk/rooms/invite-bot")
+async def invite_bot_to_room(
+    body: RoomCodeRequest,
+    user: models.User = Depends(security.get_current_user),
+):
+    room = pk_rooms.get_room(body.code)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在或已过期")
+    try:
+        room = await pk_rooms.invite_bot(room, user.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return pk_rooms.public_state(room, for_user=user.id)
+
+
 @router.get("/api/pk/rooms/{code}")
 def get_pk_room(
     code: str,
@@ -63,6 +90,7 @@ def get_pk_room(
     room = pk_rooms.get_room(code)
     if not room:
         raise HTTPException(status_code=404, detail="房间不存在或已过期")
+    pk_rooms.touch_presence(room, user.id)
     return pk_rooms.public_state(room, for_user=user.id)
 
 
@@ -111,13 +139,22 @@ async def pk_websocket(websocket: WebSocket, code: str):
                     await pk_rooms.set_ready(room, user.id, False)
                 elif action == "answer":
                     await pk_rooms.submit_answer(room, user.id, int(msg.get("choice", -1)))
+                elif action == "invite_bot":
+                    await pk_rooms.invite_bot(room, user.id)
+                elif action == "leave":
+                    await pk_rooms.leave_room(code=norm, user_id=user.id)
+                    await websocket.close()
+                    return
                 elif action == "ping":
-                    await websocket.send_json({"event": "pong", "data": {}})
+                    pk_rooms.touch_presence(room, user.id)
+                    await websocket.send_json(
+                        {"event": "pong", "data": pk_rooms.public_state(room, for_user=user.id)}
+                    )
                 else:
                     await websocket.send_json({"event": "error", "data": {"detail": "未知操作"}})
             except ValueError as exc:
                 await websocket.send_json({"event": "error", "data": {"detail": str(exc)}})
     except WebSocketDisconnect:
-        player = room.players.get(user.id)
-        if player:
+        room = pk_rooms.get_room(norm) or room
+        if room:
             pk_rooms.mark_offline(room, user.id)

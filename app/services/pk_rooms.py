@@ -1,7 +1,11 @@
-"""PK rooms: 2-player or bot vocab battles.
+"""PK rooms: async independent race + durable Neon state.
 
-Rooms are cached in memory for WebSocket fan-out, and persisted to Neon
-(`PkBattleRoom`) so joins survive Render cold starts / redeploys.
+Match model
+-----------
+- Same question set for everyone.
+- Each player advances on their own timeline (no waiting for others).
+- Room finishes when every participant has answered all questions.
+- Ranking is by score (correct count).
 """
 from __future__ import annotations
 
@@ -25,8 +29,10 @@ logger = logging.getLogger(__name__)
 
 QUESTIONS_PER_MATCH = 20
 BOT_ACCURACY = 0.72
-BOT_ANSWER_DELAY = (0.6, 1.8)
+BOT_ANSWER_DELAY = (0.5, 1.4)
 ROOM_TTL_HOURS = 6
+PRESENCE_GRACE_SEC = 45
+BOT_ID = -1
 
 
 @dataclass
@@ -34,9 +40,12 @@ class PlayerState:
     user_id: int
     name: str
     score: int = 0
-    answers: dict[int, int] = field(default_factory=dict)  # q_index -> choice
+    answers: dict[int, int] = field(default_factory=dict)
     ready: bool = False
     is_bot: bool = False
+    finished: bool = False
+    current_index: int = 0
+    last_seen: float = field(default_factory=time.time)
     websocket: Any = None
 
 
@@ -49,7 +58,6 @@ class Room:
     status: str = "waiting"  # waiting | playing | finished
     players: dict[int, PlayerState] = field(default_factory=dict)
     questions: list[dict] = field(default_factory=list)
-    current_index: int = 0
     started_at: float | None = None
     finished_at: float | None = None
     bot_task: asyncio.Task | None = None
@@ -60,7 +68,6 @@ _lock = asyncio.Lock()
 
 
 def normalize_code(raw: str | None) -> str:
-    """Normalize room codes typed on phones (spaces / full-width)."""
     text = unicodedata.normalize("NFKC", (raw or "").strip()).upper()
     return "".join(ch for ch in text if ch.isalnum())
 
@@ -73,6 +80,18 @@ def _gen_code() -> str:
     raise RuntimeError("Unable to allocate room code")
 
 
+def _touch(player: PlayerState) -> None:
+    player.last_seen = time.time()
+
+
+def _is_online(player: PlayerState) -> bool:
+    if player.is_bot:
+        return True
+    if player.websocket is not None:
+        return True
+    return (time.time() - float(player.last_seen or 0)) < PRESENCE_GRACE_SEC
+
+
 def _player_to_dict(p: PlayerState) -> dict:
     return {
         "user_id": p.user_id,
@@ -81,6 +100,9 @@ def _player_to_dict(p: PlayerState) -> dict:
         "answers": {str(k): v for k, v in p.answers.items()},
         "ready": p.ready,
         "is_bot": p.is_bot,
+        "finished": p.finished,
+        "current_index": p.current_index,
+        "last_seen": p.last_seen,
     }
 
 
@@ -94,6 +116,9 @@ def _player_from_dict(data: dict) -> PlayerState:
         answers=answers,
         ready=bool(data.get("ready")),
         is_bot=bool(data.get("is_bot")),
+        finished=bool(data.get("finished")),
+        current_index=int(data.get("current_index") or 0),
+        last_seen=float(data.get("last_seen") or time.time()),
     )
 
 
@@ -106,7 +131,6 @@ def room_to_state(room: Room) -> dict:
         "status": room.status,
         "players": {str(uid): _player_to_dict(p) for uid, p in room.players.items()},
         "questions": room.questions,
-        "current_index": room.current_index,
         "started_at": room.started_at,
         "finished_at": room.finished_at,
     }
@@ -120,7 +144,6 @@ def room_from_state(data: dict, *, keep_websockets: Room | None = None) -> Room:
         wordbook_id=data.get("wordbook_id"),
         status=str(data.get("status") or "waiting"),
         questions=list(data.get("questions") or []),
-        current_index=int(data.get("current_index") or 0),
         started_at=data.get("started_at"),
         finished_at=data.get("finished_at"),
     )
@@ -165,6 +188,19 @@ def _persist_room(room: Room) -> None:
             session.commit()
     except Exception:
         logger.exception("persist pk room failed code=%s", room.code)
+
+
+def _delete_room_row(code: str) -> None:
+    try:
+        with Session(database.engine) as session:
+            row = session.exec(
+                select(models.PkBattleRoom).where(models.PkBattleRoom.code == code)
+            ).first()
+            if row:
+                session.delete(row)
+                session.commit()
+    except Exception:
+        logger.exception("delete pk room failed code=%s", code)
 
 
 def _load_room_from_db(code: str) -> Room | None:
@@ -212,6 +248,14 @@ def _cache_and_persist(room: Room) -> Room:
     _rooms[room.code] = room
     _persist_room(room)
     return room
+
+
+def _humans(room: Room) -> list[PlayerState]:
+    return [p for p in room.players.values() if not p.is_bot]
+
+
+def _has_bot(room: Room) -> bool:
+    return any(p.is_bot for p in room.players.values())
 
 
 def _pick_from_json_wordbook(session: Session, wordbook_id: int, limit: int, seen: set[str]) -> list[dict]:
@@ -264,12 +308,10 @@ def _pick_words(session: Session, user_id: int, wordbook_id: int | None, limit: 
             return words
 
     if wordbook_id:
-        # Prefer curated JSON (full book); SQL entries are sparse star rows only.
         json_words = _pick_from_json_wordbook(session, wordbook_id, limit - len(words), seen)
         words.extend(json_words)
         if len(words) >= limit:
             return words[:limit]
-
         entries = session.exec(
             select(models.WordBookEntry)
             .where(models.WordBookEntry.wordbook_id == wordbook_id)
@@ -382,15 +424,15 @@ async def create_room(
 ) -> Room:
     async with _lock:
         code = _gen_code()
-        # Avoid colliding with a durable room still in DB.
         while _load_room_from_db(code) is not None:
             code = _gen_code()
         room = Room(code=code, host_id=user_id, mode=mode, wordbook_id=wordbook_id)
-        room.players[user_id] = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
+        host = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
+        _touch(host)
+        room.players[user_id] = host
         if mode == "bot":
-            bot_id = -1
-            room.players[bot_id] = PlayerState(
-                user_id=bot_id, name="泡泡机器人", ready=True, is_bot=True
+            room.players[BOT_ID] = PlayerState(
+                user_id=BOT_ID, name="泡泡机器人", ready=True, is_bot=True
             )
         return _cache_and_persist(room)
 
@@ -406,17 +448,73 @@ async def join_room(*, code: str, user_id: int, display_name: str) -> Room:
         if room.status == "playing" and user_id not in room.players:
             raise ValueError("对战已开始，无法加入")
         if room.mode == "bot":
-            raise ValueError("机器人房不可加入，请创建「双人房」")
+            raise ValueError("机器人房不可加入，请创建「双人房」或让房主邀请机器人")
         if user_id in room.players:
+            _touch(room.players[user_id])
             return _cache_and_persist(room)
-        humans = [p for p in room.players.values() if not p.is_bot]
+        humans = _humans(room)
         if len(humans) >= 2:
             raise ValueError("房间已满（最多 2 人）")
-        room.players[user_id] = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
+        if _has_bot(room) and len(humans) >= 1:
+            raise ValueError("房间已有机器人，请另开房间")
+        player = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
+        _touch(player)
+        room.players[user_id] = player
         return _cache_and_persist(room)
 
 
+async def invite_bot(room: Room, user_id: int) -> Room:
+    if room.status != "waiting":
+        raise ValueError("对战已开始，无法邀请机器人")
+    if user_id not in room.players:
+        raise ValueError("不在房间内")
+    if _has_bot(room):
+        raise ValueError("房间里已有机器人")
+    if len(_humans(room)) >= 2:
+        raise ValueError("双人房已满，不能再加机器人")
+    room.players[BOT_ID] = PlayerState(
+        user_id=BOT_ID, name="泡泡机器人", ready=True, is_bot=True
+    )
+    _touch(room.players[user_id])
+    _cache_and_persist(room)
+    await broadcast(room, "lobby")
+    return room
+
+
+async def leave_room(*, code: str, user_id: int) -> dict:
+    async with _lock:
+        norm = normalize_code(code)
+        room = get_room(norm)
+        if not room:
+            return {"ok": True, "dissolved": True}
+        if user_id not in room.players:
+            return {"ok": True, "dissolved": False}
+        player = room.players.pop(user_id)
+        if player.websocket:
+            try:
+                await player.websocket.close()
+            except Exception:
+                pass
+        humans = _humans(room)
+        if not humans:
+            if room.bot_task and not room.bot_task.done():
+                room.bot_task.cancel()
+            _rooms.pop(norm, None)
+            _delete_room_row(norm)
+            return {"ok": True, "dissolved": True}
+        if room.host_id == user_id:
+            room.host_id = humans[0].user_id
+        _cache_and_persist(room)
+
+    event = "lobby" if room.status == "waiting" else "answer"
+    await broadcast(room, event)
+    if room.status == "playing":
+        await _maybe_finish(room)
+    return {"ok": True, "dissolved": False, "room": public_state(room)}
+
+
 def public_state(room: Room, for_user: int | None = None) -> dict:
+    total = len(room.questions) or QUESTIONS_PER_MATCH
     players = []
     for p in room.players.values():
         players.append(
@@ -426,8 +524,10 @@ def public_state(room: Room, for_user: int | None = None) -> dict:
                 "score": p.score,
                 "ready": p.ready,
                 "is_bot": p.is_bot,
-                "online": bool(p.is_bot or p.websocket is not None),
-                "answered": room.current_index in p.answers if room.status == "playing" else False,
+                "online": _is_online(p),
+                "finished": p.finished,
+                "progress": len(p.answers),
+                "current_index": p.current_index,
             }
         )
     payload: dict[str, Any] = {
@@ -435,27 +535,35 @@ def public_state(room: Room, for_user: int | None = None) -> dict:
         "mode": room.mode,
         "status": room.status,
         "players": players,
-        "current_index": room.current_index,
-        "total": len(room.questions) or QUESTIONS_PER_MATCH,
+        "total": total,
         "wordbook_id": room.wordbook_id,
         "host_id": room.host_id,
+        "race_mode": "independent",
     }
-    if room.status == "playing" and room.questions:
-        q = room.questions[room.current_index]
-        payload["question"] = {
-            "index": q["index"],
-            "prompt": q["prompt"],
-            "options": q["options"],
-        }
-        if for_user is not None:
-            player = room.players.get(for_user)
-            if player and room.current_index in player.answers:
-                payload["your_choice"] = player.answers[room.current_index]
-                payload["correct"] = q["correct"]
+    if for_user is not None and for_user in room.players:
+        me = room.players[for_user]
+        payload["you_finished"] = me.finished
+        payload["your_index"] = me.current_index
+        payload["your_progress"] = len(me.answers)
+        payload["your_score"] = me.score
+        if room.status == "playing" and room.questions and not me.finished:
+            idx = min(me.current_index, len(room.questions) - 1)
+            q = room.questions[idx]
+            payload["question"] = {
+                "index": q["index"],
+                "prompt": q["prompt"],
+                "options": q["options"],
+            }
     if room.status == "finished":
         payload["results"] = sorted(
             [
-                {"user_id": p.user_id, "name": p.name, "score": p.score, "is_bot": p.is_bot}
+                {
+                    "user_id": p.user_id,
+                    "name": p.name,
+                    "score": p.score,
+                    "is_bot": p.is_bot,
+                    "progress": len(p.answers),
+                }
                 for p in room.players.values()
             ],
             key=lambda x: (-x["score"], x["name"]),
@@ -486,7 +594,7 @@ def _missed_questions(room: Room, user_id: int | None) -> list[dict]:
 
 
 def _persist_missed_vocab(room: Room) -> None:
-    humans = [p for p in room.players.values() if not p.is_bot]
+    humans = _humans(room)
     if not humans or not room.questions:
         return
     with Session(database.engine) as session:
@@ -532,16 +640,23 @@ async def broadcast(room: Room, event: str, extra: dict | None = None) -> None:
     _persist_room(room)
 
 
+def _can_start(room: Room) -> bool:
+    humans = _humans(room)
+    if not humans:
+        return False
+    if not all(p.ready for p in humans):
+        return False
+    return len(humans) >= 2 or _has_bot(room)
+
+
 async def set_ready(room: Room, user_id: int, ready: bool = True) -> None:
     player = room.players.get(user_id)
     if not player:
         raise ValueError("不在房间内")
     player.ready = ready
+    _touch(player)
     _persist_room(room)
-    humans = [p for p in room.players.values() if not p.is_bot]
-    if room.mode == "bot" and ready:
-        await start_match(room)
-    elif room.mode == "pvp" and len(humans) >= 2 and all(p.ready for p in humans):
+    if ready and _can_start(room):
         await start_match(room)
     else:
         await broadcast(room, "lobby")
@@ -560,14 +675,17 @@ async def start_match(room: Room) -> None:
         )
     room.questions = _build_questions(pool)
     room.status = "playing"
-    room.current_index = 0
     room.started_at = time.time()
     for p in room.players.values():
         p.score = 0
         p.answers = {}
+        p.finished = False
+        p.current_index = 0
     _persist_room(room)
     await broadcast(room, "question")
-    if room.mode == "bot":
+    if _has_bot(room):
+        if room.bot_task and not room.bot_task.done():
+            room.bot_task.cancel()
         room.bot_task = asyncio.create_task(_bot_loop(room))
 
 
@@ -577,39 +695,63 @@ async def submit_answer(room: Room, user_id: int, choice: int) -> None:
     player = room.players.get(user_id)
     if not player:
         raise ValueError("不在房间内")
-    idx = room.current_index
+    if player.finished:
+        return
+    idx = player.current_index
     if idx in player.answers:
         return
     if choice < 0 or choice > 3:
         raise ValueError("无效选项")
+    if idx < 0 or idx >= len(room.questions):
+        player.finished = True
+        await _maybe_finish(room)
+        return
+
     player.answers[idx] = choice
     q = room.questions[idx]
-    if choice == q["correct"]:
+    correct = choice == q["correct"]
+    if correct:
         player.score += 1
-    await broadcast(room, "answer")
+    _touch(player)
 
-    humans = [p for p in room.players.values() if not p.is_bot]
-    bots = [p for p in room.players.values() if p.is_bot]
-    needed = humans + bots
-    if all(idx in p.answers for p in needed):
-        await asyncio.sleep(0.45)
-        await _advance(room)
+    feedback = {
+        "index": idx,
+        "choice": choice,
+        "correct": q["correct"],
+        "is_correct": correct,
+        "word": q["word"],
+    }
+
+    player.current_index = idx + 1
+    if player.current_index >= len(room.questions):
+        player.finished = True
+
+    await broadcast(room, "answer", extra={"feedback": feedback})
+    await _maybe_finish(room)
 
 
-async def _advance(room: Room) -> None:
-    if room.current_index + 1 >= len(room.questions):
-        room.status = "finished"
-        room.finished_at = time.time()
-        if room.bot_task and not room.bot_task.done():
-            room.bot_task.cancel()
-        try:
-            await asyncio.to_thread(_persist_missed_vocab, room)
-        except Exception:
-            pass
-        await broadcast(room, "finished")
+async def _maybe_finish(room: Room) -> None:
+    if room.status != "playing":
         return
-    room.current_index += 1
-    await broadcast(room, "question")
+    active = list(room.players.values())
+    if not active:
+        return
+    if all(p.finished for p in active):
+        await _finish_room(room)
+
+
+async def _finish_room(room: Room) -> None:
+    if room.status == "finished":
+        return
+    room.status = "finished"
+    room.finished_at = time.time()
+    if room.bot_task and not room.bot_task.done():
+        room.bot_task.cancel()
+    try:
+        await asyncio.to_thread(_persist_missed_vocab, room)
+    except Exception:
+        pass
+    await broadcast(room, "finished")
 
 
 async def _bot_loop(room: Room) -> None:
@@ -617,15 +759,21 @@ async def _bot_loop(room: Room) -> None:
     if not bot:
         return
     try:
-        while room.status == "playing":
-            idx = room.current_index
+        while room.status == "playing" and not bot.finished:
+            idx = bot.current_index
             if idx in bot.answers:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.15)
                 continue
             delay = random.uniform(*BOT_ANSWER_DELAY)
             await asyncio.sleep(delay)
-            if room.status != "playing" or room.current_index != idx:
+            if room.status != "playing" or bot.finished:
+                break
+            if bot.current_index != idx:
                 continue
+            if idx >= len(room.questions):
+                bot.finished = True
+                await _maybe_finish(room)
+                break
             q = room.questions[idx]
             if random.random() < BOT_ACCURACY:
                 choice = q["correct"]
@@ -642,7 +790,9 @@ async def attach_ws(room: Room, user_id: int, websocket) -> None:
     if not player:
         raise ValueError("请先加入房间")
     player.websocket = websocket
+    _touch(player)
     _rooms[room.code] = room
+    _persist_room(room)
     await websocket.send_json({"event": "lobby", "data": public_state(room, for_user=user_id)})
 
 
@@ -651,4 +801,12 @@ def mark_offline(room: Room, user_id: int) -> None:
     if not player:
         return
     player.websocket = None
+    _persist_room(room)
+
+
+def touch_presence(room: Room, user_id: int) -> None:
+    player = room.players.get(user_id)
+    if not player:
+        return
+    _touch(player)
     _persist_room(room)

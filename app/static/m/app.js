@@ -14,7 +14,7 @@
     eyecare: localStorage.getItem('wp_eyecare') === '1',
     reader: null,
     study: null, // bidirectional study session
-    pk: { room: null, ws: null, wordbookId: null, pollTimer: null },
+    pk: { room: null, ws: null, wordbookId: null, pollTimer: null, feedback: null },
     bookTranslate: {
       scan: null,
       progress: null,
@@ -1073,11 +1073,12 @@
     const meId = state.user?.id;
     const players = room?.players || [];
     const humans = players.filter((p) => !p.is_bot);
+    const hasBot = players.some((p) => p.is_bot);
     const me = humans.find((p) => p.user_id === meId) || humans[0];
     const waitingLobby = room?.status === 'waiting';
 
     root.innerHTML = `
-      <div class="m-hero"><h1>单词对战</h1><p>双人线上竞赛：创建房间 → 分享房间码 → 双方准备。</p></div>
+      <div class="m-hero"><h1>单词对战</h1><p>同一套题各自作答，全部答完后比分排名。</p></div>
       ${waitingLobby ? `
         <div class="m-card">
           <h2>房间大厅</h2>
@@ -1087,25 +1088,32 @@
             <button class="m-btn m-btn-ghost" type="button" id="pkCopy">复制</button>
           </div>
           <div class="m-list">
-            ${players.map((p) => `
+            ${players.map((p) => {
+              const isMe = p.user_id === meId;
+              const online = isMe || p.online || p.is_bot;
+              return `
               <div class="m-list-item">
                 <span>
-                  <strong>${escapeHtml(p.name)}</strong>
+                  <strong>${escapeHtml(p.name)}${isMe ? '（我）' : ''}</strong>
                   ${p.user_id === room.host_id ? '<span class="m-chip">房主</span>' : ''}
                   ${p.is_bot ? '<span class="m-chip">机器人</span>' : ''}
                 </span>
-                <span class="m-chip">${p.ready ? '已准备' : (p.online ? '在线' : '离线')}</span>
-              </div>`).join('')}
+                <span class="m-chip">${p.ready ? '已准备' : (online ? '在线' : '离线')}</span>
+              </div>`;
+            }).join('')}
           </div>
           <p class="m-muted" style="margin-top:8px;">
-            ${room.mode === 'pvp'
-              ? (humans.length < 2 ? '等待对手加入…' : (humans.every((p) => p.ready) ? '即将开始…' : '双方都点「准备开战」后开始'))
-              : '点击准备后立即开战'}
+            ${hasBot || humans.length >= 2
+              ? (humans.every((p) => p.ready) ? '即将开始…' : '参与者都点「准备开战」后开始（各自独立答题）')
+              : '等待对手加入，或邀请机器人陪练'}
           </p>
-          <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button">
-            ${me?.ready ? '已准备（等待对方）' : '准备开战'}
+          ${!hasBot && humans.length < 2 ? `
+            <button class="m-btn m-btn-sky m-btn-block" id="pkInviteBot" type="button">邀请机器人</button>
+          ` : ''}
+          <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button" style="margin-top:8px;">
+            ${me?.ready ? '已准备' : '准备开战'}
           </button>
-          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeave" type="button" style="margin-top:8px;">离开房间</button>
+          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeave" type="button" style="margin-top:8px;">退出房间</button>
         </div>
       ` : `
         <div class="m-card">
@@ -1130,8 +1138,19 @@
     $('#pkBot')?.addEventListener('click', () => startPk('bot'));
     $('#pkCreate')?.addEventListener('click', () => startPk('pvp'));
     $('#pkJoin')?.addEventListener('click', joinPk);
+    $('#pkInviteBot')?.addEventListener('click', async () => {
+      try {
+        const room2 = await api('/api/pk/rooms/invite-bot', {
+          method: 'POST',
+          body: { code: room.code },
+        });
+        state.pk.room = room2;
+        renderPk();
+        toast('已邀请机器人');
+      } catch (e) { toast(e.message); }
+    });
     $('#pkReady')?.addEventListener('click', () => {
-      if (me?.ready) return toast('已准备，等待对方');
+      if (me?.ready) return toast('已准备');
       ensurePkWs(room.code);
       state.pk.ws?.send(JSON.stringify({ action: 'ready' }));
     });
@@ -1143,13 +1162,22 @@
         toast(room.code);
       }
     });
-    $('#pkLeave')?.addEventListener('click', () => {
-      try { state.pk.ws?.close(); } catch (_) {}
-      state.pk.ws = null;
-      state.pk.room = null;
-      stopPkPoll();
-      renderPk();
-    });
+    $('#pkLeave')?.addEventListener('click', leavePkRoom);
+  }
+
+  async function leavePkRoom() {
+    const code = state.pk.room?.code;
+    try {
+      if (code) {
+        await api('/api/pk/rooms/leave', { method: 'POST', body: { code } });
+      }
+    } catch (_) { /* ignore */ }
+    try { state.pk.ws?.close(); } catch (_) {}
+    state.pk.ws = null;
+    state.pk.room = null;
+    stopPkPoll();
+    renderPk();
+    toast('已退出房间');
   }
 
   function stopPkPoll() {
@@ -1168,9 +1196,9 @@
         const room = await api(`/api/pk/rooms/${encodeURIComponent(code)}`);
         state.pk.room = room;
         if (state.tab === 'pk') renderPk();
-        if (room.status === 'playing' || room.status === 'finished') stopPkPoll();
+        if (room.status === 'finished') stopPkPoll();
       } catch (_) { /* room may expire */ }
-    }, 2500);
+    }, 2000);
   }
 
   async function startPk(mode) {
@@ -1181,10 +1209,10 @@
       });
       state.pk.room = room;
       connectPkWs(room.code);
-      if (mode === 'pvp') startPkPoll(room.code);
+      startPkPoll(room.code);
       if (mode === 'bot') setTimeout(() => state.pk.ws?.send(JSON.stringify({ action: 'ready' })), 400);
       renderPk();
-      toast(mode === 'pvp' ? `房间 ${room.code}，发给好友加入` : `房间 ${room.code}`);
+      toast(mode === 'pvp' ? `房间 ${room.code}，发给好友或邀请机器人` : `房间 ${room.code}`);
     } catch (e) { toast(e.message); }
   }
 
@@ -1212,57 +1240,96 @@
     const ws = new WebSocket(`${proto}://${location.host}/api/pk/ws/${encodeURIComponent(code)}`);
     state.pk.ws = ws;
     ws.onopen = () => {
-      // keep cookie session; some browsers need a first ping
       try { ws.send(JSON.stringify({ action: 'ping' })); } catch (_) {}
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data || '{}');
       if (msg.event === 'error') return toast(msg.data?.detail || 'PK 错误');
-      if (msg.data) state.pk.room = msg.data;
+      if (msg.data) {
+        state.pk.room = msg.data;
+        if (msg.data.feedback) state.pk.feedback = msg.data.feedback;
+      }
       if (msg.event === 'finished') {
         const n = (msg.data?.missed_words || []).length;
         if (n) toast(`${n} 个不会的词已进生词本`);
         refreshVocab().catch(() => {});
         stopPkPoll();
       }
-      if (msg.event === 'question' || msg.event === 'playing') stopPkPoll();
       if (state.tab === 'pk') renderPk();
     };
     ws.onclose = () => {
-      // REST poll keeps lobby alive if WS drops on mobile networks
-      if (state.pk.room?.status === 'waiting' && state.pk.room?.code) startPkPoll(state.pk.room.code);
+      if (state.pk.room?.code && state.pk.room.status !== 'finished') startPkPoll(state.pk.room.code);
     };
   }
 
   function renderPkPlay(root, room) {
-    const q = room.question || {};
+    const meId = state.user?.id;
     const players = room.players || [];
-    const me = players.find((p) => !p.is_bot) || players[0];
-    const other = players.find((p) => p !== me) || players[1];
+    const me = players.find((p) => p.user_id === meId) || players.find((p) => !p.is_bot) || players[0];
+    const others = players.filter((p) => p !== me);
+    const q = room.question || {};
+    const total = room.total || 20;
+    const myIdx = (room.your_index ?? me?.current_index ?? 0);
+    const feedback = state.pk.feedback;
+    const waitingOthers = !!room.you_finished;
+
     root.innerHTML = `
       <div class="pk-scoreboard">
-        <div class="pk-player"><div>${escapeHtml(me?.name || '我')}</div><div class="score">${me?.score ?? 0}</div></div>
-        <div>${(room.current_index || 0) + 1}/${room.total || 20}</div>
-        <div class="pk-player"><div>${escapeHtml(other?.name || '对手')}</div><div class="score">${other?.score ?? 0}</div></div>
-      </div>
-      <div class="m-card">
-        <h2>看中文选英文</h2>
-        <p style="font-size:1.15rem;">${escapeHtml(q.prompt || '')}</p>
-        <div class="pk-options" id="pkOptions">
-          ${(q.options || []).map((opt, i) => `
-            <button type="button" data-choice="${i}" ${room.your_choice != null ? 'disabled' : ''}>
-              ${String.fromCharCode(65 + i)}. ${escapeHtml(opt)}
-            </button>`).join('')}
+        <div class="pk-player">
+          <div>${escapeHtml(me?.name || '我')}</div>
+          <div class="score">${me?.score ?? room.your_score ?? 0}</div>
+          <div class="m-muted" style="font-size:0.75rem;">${me?.progress ?? room.your_progress ?? 0}/${total}</div>
         </div>
-      </div>`;
+        <div>${waitingOthers ? '已答完' : `${Math.min(total, myIdx + 1)}/${total}`}</div>
+        <div class="pk-player">
+          <div>${escapeHtml(others[0]?.name || '对手')}</div>
+          <div class="score">${others[0]?.score ?? 0}</div>
+          <div class="m-muted" style="font-size:0.75rem;">${others[0]?.progress ?? 0}/${total}${others[0]?.finished ? ' · 完成' : ''}</div>
+        </div>
+      </div>
+      ${waitingOthers ? `
+        <div class="m-card">
+          <h2>你已答完</h2>
+          <p class="m-muted">当前得分 ${room.your_score ?? me?.score ?? 0}。等待对手完成全部题目后出排名…</p>
+          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button">退出房间</button>
+        </div>
+      ` : `
+        <div class="m-card">
+          <h2>看中文选英文</h2>
+          <p style="font-size:1.15rem;">${escapeHtml(q.prompt || '')}</p>
+          <div class="pk-options" id="pkOptions">
+            ${(q.options || []).map((opt, i) => {
+              let cls = '';
+              if (feedback && feedback.index === q.index) {
+                if (i === feedback.correct) cls = 'correct';
+                if (i === feedback.choice && !feedback.is_correct) cls = 'wrong';
+              }
+              return `<button type="button" class="${cls}" data-choice="${i}" ${feedback && feedback.index === q.index ? 'disabled' : ''}>
+                ${String.fromCharCode(65 + i)}. ${escapeHtml(opt)}
+              </button>`;
+            }).join('')}
+          </div>
+          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button" style="margin-top:10px;">退出房间</button>
+        </div>
+      `}`;
+
+    $('#pkLeaveMid')?.addEventListener('click', leavePkRoom);
     $$('#pkOptions [data-choice]').forEach((btn) => {
-      const choice = Number(btn.dataset.choice);
-      if (room.your_choice != null) {
-        if (choice === room.correct) btn.classList.add('correct');
-        if (choice === room.your_choice && choice !== room.correct) btn.classList.add('wrong');
-      }
-      btn.onclick = () => state.pk.ws?.send(JSON.stringify({ action: 'answer', choice }));
+      btn.onclick = () => {
+        if (btn.disabled) return;
+        state.pk.feedback = null;
+        state.pk.ws?.send(JSON.stringify({ action: 'answer', choice: Number(btn.dataset.choice) }));
+      };
     });
+
+    // Clear short-lived feedback so next question renders cleanly after paint.
+    if (feedback && feedback.index === q.index) {
+      setTimeout(() => {
+        if (state.pk.feedback === feedback) state.pk.feedback = null;
+      }, 450);
+    } else if (feedback && feedback.index !== q.index) {
+      state.pk.feedback = null;
+    }
   }
 
   function renderPkResult(root, room) {
@@ -1272,8 +1339,9 @@
         <p>${missed.length ? `答错/未答的 ${missed.length} 词已自动进生词本` : '全部答对，太强了！'}</p>
       </div>
       <div class="m-card">
+        <h2>排名</h2>
         ${(room.results || []).map((r, i) => `
-          <div class="m-list-item"><strong>${i + 1}. ${escapeHtml(r.name)}</strong><span class="m-chip">${r.score}</span></div>
+          <div class="m-list-item"><strong>${i + 1}. ${escapeHtml(r.name)}</strong><span class="m-chip">${r.score} 分</span></div>
         `).join('')}
       </div>
       ${missed.length ? `<div class="m-card"><h2>已进生词本</h2>
@@ -1283,7 +1351,14 @@
             <span class="m-chip">生词</span>
           </div>`).join('')}</div>` : ''}
       <button class="m-btn m-btn-primary m-btn-block" id="pkAgain" type="button">再来</button>`;
-    $('#pkAgain').onclick = () => { state.pk.room = null; state.pk.ws?.close(); state.pk.ws = null; renderPk(); };
+    $('#pkAgain').onclick = () => {
+      state.pk.room = null;
+      state.pk.feedback = null;
+      try { state.pk.ws?.close(); } catch (_) {}
+      state.pk.ws = null;
+      stopPkPoll();
+      renderPk();
+    };
   }
 
   // ---------- Mine ----------
