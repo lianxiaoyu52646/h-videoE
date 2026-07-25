@@ -358,6 +358,26 @@ class WordBookMemoryWord(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class PkBattleRoom(SQLModel, table=True):
+    """Durable PK lobby/match state so joins survive Render restarts."""
+
+    __tablename__ = "pk_battle_room"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    code: str = Field(index=True, unique=True)
+    host_id: int = Field(foreign_key="user.id", index=True)
+    mode: str = Field(default="pvp", index=True)  # bot | pvp
+    status: str = Field(default="waiting", index=True)  # waiting | playing | finished
+    wordbook_id: Optional[int] = Field(default=None, index=True)
+    state_json: dict = Field(
+        default_factory=dict,
+        sa_column=Column(JSON, nullable=False, default=dict),
+    )
+    expires_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class LibraryBook(SQLModel, table=True):
     __table_args__ = (UniqueConstraint("user_id", "key", name="uq_library_book_user_key"),)
 

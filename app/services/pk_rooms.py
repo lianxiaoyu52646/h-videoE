@@ -1,11 +1,18 @@
-"""In-memory PK rooms: 2-player or bot battles for vocab quiz."""
+"""PK rooms: 2-player or bot vocab battles.
+
+Rooms are cached in memory for WebSocket fan-out, and persisted to Neon
+(`PkBattleRoom`) so joins survive Render cold starts / redeploys.
+"""
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import string
 import time
+import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlmodel import Session, select
@@ -14,9 +21,12 @@ from app import crud, models
 from app import database
 
 
+logger = logging.getLogger(__name__)
+
 QUESTIONS_PER_MATCH = 20
 BOT_ACCURACY = 0.72
 BOT_ANSWER_DELAY = (0.6, 1.8)
+ROOM_TTL_HOURS = 6
 
 
 @dataclass
@@ -49,12 +59,186 @@ _rooms: dict[str, Room] = {}
 _lock = asyncio.Lock()
 
 
+def normalize_code(raw: str | None) -> str:
+    """Normalize room codes typed on phones (spaces / full-width)."""
+    text = unicodedata.normalize("NFKC", (raw or "").strip()).upper()
+    return "".join(ch for ch in text if ch.isalnum())
+
+
 def _gen_code() -> str:
-    for _ in range(20):
+    for _ in range(40):
         code = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         if code not in _rooms:
             return code
     raise RuntimeError("Unable to allocate room code")
+
+
+def _player_to_dict(p: PlayerState) -> dict:
+    return {
+        "user_id": p.user_id,
+        "name": p.name,
+        "score": p.score,
+        "answers": {str(k): v for k, v in p.answers.items()},
+        "ready": p.ready,
+        "is_bot": p.is_bot,
+    }
+
+
+def _player_from_dict(data: dict) -> PlayerState:
+    answers_raw = data.get("answers") or {}
+    answers = {int(k): int(v) for k, v in answers_raw.items()}
+    return PlayerState(
+        user_id=int(data["user_id"]),
+        name=str(data.get("name") or ""),
+        score=int(data.get("score") or 0),
+        answers=answers,
+        ready=bool(data.get("ready")),
+        is_bot=bool(data.get("is_bot")),
+    )
+
+
+def room_to_state(room: Room) -> dict:
+    return {
+        "code": room.code,
+        "host_id": room.host_id,
+        "mode": room.mode,
+        "wordbook_id": room.wordbook_id,
+        "status": room.status,
+        "players": {str(uid): _player_to_dict(p) for uid, p in room.players.items()},
+        "questions": room.questions,
+        "current_index": room.current_index,
+        "started_at": room.started_at,
+        "finished_at": room.finished_at,
+    }
+
+
+def room_from_state(data: dict, *, keep_websockets: Room | None = None) -> Room:
+    room = Room(
+        code=str(data["code"]).upper(),
+        host_id=int(data["host_id"]),
+        mode=str(data.get("mode") or "pvp"),
+        wordbook_id=data.get("wordbook_id"),
+        status=str(data.get("status") or "waiting"),
+        questions=list(data.get("questions") or []),
+        current_index=int(data.get("current_index") or 0),
+        started_at=data.get("started_at"),
+        finished_at=data.get("finished_at"),
+    )
+    for uid_s, pdata in (data.get("players") or {}).items():
+        player = _player_from_dict(pdata)
+        if keep_websockets and keep_websockets.players.get(player.user_id):
+            player.websocket = keep_websockets.players[player.user_id].websocket
+        room.players[int(uid_s)] = player
+    return room
+
+
+def _persist_room(room: Room) -> None:
+    now = datetime.utcnow()
+    expires = now + timedelta(hours=ROOM_TTL_HOURS)
+    state = room_to_state(room)
+    try:
+        with Session(database.engine) as session:
+            row = session.exec(
+                select(models.PkBattleRoom).where(models.PkBattleRoom.code == room.code)
+            ).first()
+            if not row:
+                row = models.PkBattleRoom(
+                    code=room.code,
+                    host_id=room.host_id,
+                    mode=room.mode,
+                    status=room.status,
+                    wordbook_id=room.wordbook_id,
+                    state_json=state,
+                    expires_at=expires,
+                    created_at=now,
+                    updated_at=now,
+                )
+            else:
+                row.host_id = room.host_id
+                row.mode = room.mode
+                row.status = room.status
+                row.wordbook_id = room.wordbook_id
+                row.state_json = state
+                row.expires_at = expires
+                row.updated_at = now
+            session.add(row)
+            session.commit()
+    except Exception:
+        logger.exception("persist pk room failed code=%s", room.code)
+
+
+def _load_room_from_db(code: str) -> Room | None:
+    code = normalize_code(code)
+    if not code:
+        return None
+    try:
+        with Session(database.engine) as session:
+            row = session.exec(
+                select(models.PkBattleRoom).where(models.PkBattleRoom.code == code)
+            ).first()
+            if not row:
+                return None
+            if row.expires_at and row.expires_at < datetime.utcnow():
+                session.delete(row)
+                session.commit()
+                return None
+            data = dict(row.state_json or {})
+            if not data.get("code"):
+                data["code"] = row.code
+                data["host_id"] = row.host_id
+                data["mode"] = row.mode
+                data["status"] = row.status
+                data["wordbook_id"] = row.wordbook_id
+            return room_from_state(data)
+    except Exception:
+        logger.exception("load pk room failed code=%s", code)
+        return None
+
+
+def get_room(code: str) -> Room | None:
+    code = normalize_code(code)
+    if not code:
+        return None
+    room = _rooms.get(code)
+    if room:
+        return room
+    room = _load_room_from_db(code)
+    if room:
+        _rooms[code] = room
+    return room
+
+
+def _cache_and_persist(room: Room) -> Room:
+    _rooms[room.code] = room
+    _persist_room(room)
+    return room
+
+
+def _pick_from_json_wordbook(session: Session, wordbook_id: int, limit: int, seen: set[str]) -> list[dict]:
+    from app.services import wordbook_json_store
+
+    cat = session.exec(
+        select(models.WordBookCatalog).where(
+            models.WordBookCatalog.installed_wordbook_id == wordbook_id
+        )
+    ).first()
+    if not cat or not cat.asset_file:
+        return []
+    entries = list(wordbook_json_store.load_entries(cat.asset_file))
+    random.shuffle(entries)
+    words: list[dict] = []
+    for entry in entries:
+        w = (entry.get("word") or "").strip().lower()
+        if not w or w in seen or " " in w:
+            continue
+        translation = (entry.get("translation") or entry.get("definition") or "").strip()
+        if not translation:
+            continue
+        seen.add(w)
+        words.append({"word": w, "translation": translation})
+        if len(words) >= limit:
+            break
+    return words
 
 
 def _pick_words(session: Session, user_id: int, wordbook_id: int | None, limit: int) -> list[dict]:
@@ -80,6 +264,12 @@ def _pick_words(session: Session, user_id: int, wordbook_id: int | None, limit: 
             return words
 
     if wordbook_id:
+        # Prefer curated JSON (full book); SQL entries are sparse star rows only.
+        json_words = _pick_from_json_wordbook(session, wordbook_id, limit - len(words), seen)
+        words.extend(json_words)
+        if len(words) >= limit:
+            return words[:limit]
+
         entries = session.exec(
             select(models.WordBookEntry)
             .where(models.WordBookEntry.wordbook_id == wordbook_id)
@@ -98,7 +288,6 @@ def _pick_words(session: Session, user_id: int, wordbook_id: int | None, limit: 
             if len(words) >= limit:
                 return words
     else:
-        # No wordbook selected → random from ECDICT dictionary.db (words table)
         from pathlib import Path
         import sqlite3
 
@@ -128,7 +317,6 @@ def _pick_words(session: Session, user_id: int, wordbook_id: int | None, limit: 
         except Exception:
             pass
 
-    # tiny built-in fallback
     fallback = [
         {"word": "apple", "translation": "n. 苹果"},
         {"word": "book", "translation": "n. 书"},
@@ -194,6 +382,9 @@ async def create_room(
 ) -> Room:
     async with _lock:
         code = _gen_code()
+        # Avoid colliding with a durable room still in DB.
+        while _load_room_from_db(code) is not None:
+            code = _gen_code()
         room = Room(code=code, host_id=user_id, mode=mode, wordbook_id=wordbook_id)
         room.players[user_id] = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
         if mode == "bot":
@@ -201,29 +392,28 @@ async def create_room(
             room.players[bot_id] = PlayerState(
                 user_id=bot_id, name="泡泡机器人", ready=True, is_bot=True
             )
-        _rooms[code] = room
-        return room
+        return _cache_and_persist(room)
 
 
 async def join_room(*, code: str, user_id: int, display_name: str) -> Room:
     async with _lock:
-        room = _rooms.get(code.upper())
+        norm = normalize_code(code)
+        room = get_room(norm)
         if not room:
-            raise ValueError("房间不存在")
-        if room.status != "waiting":
-            raise ValueError("对战已开始")
+            raise ValueError("房间不存在或已过期，请让房主重新创建并分享新房间码")
+        if room.status == "finished":
+            raise ValueError("对战已结束，请创建新房间")
+        if room.status == "playing" and user_id not in room.players:
+            raise ValueError("对战已开始，无法加入")
         if room.mode == "bot":
-            raise ValueError("机器人房不可加入")
+            raise ValueError("机器人房不可加入，请创建「双人房」")
         if user_id in room.players:
-            return room
-        if len([p for p in room.players.values() if not p.is_bot]) >= 2:
-            raise ValueError("房间已满")
+            return _cache_and_persist(room)
+        humans = [p for p in room.players.values() if not p.is_bot]
+        if len(humans) >= 2:
+            raise ValueError("房间已满（最多 2 人）")
         room.players[user_id] = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
-        return room
-
-
-def get_room(code: str) -> Room | None:
-    return _rooms.get((code or "").upper())
+        return _cache_and_persist(room)
 
 
 def public_state(room: Room, for_user: int | None = None) -> dict:
@@ -236,6 +426,7 @@ def public_state(room: Room, for_user: int | None = None) -> dict:
                 "score": p.score,
                 "ready": p.ready,
                 "is_bot": p.is_bot,
+                "online": bool(p.is_bot or p.websocket is not None),
                 "answered": room.current_index in p.answers if room.status == "playing" else False,
             }
         )
@@ -247,6 +438,7 @@ def public_state(room: Room, for_user: int | None = None) -> dict:
         "current_index": room.current_index,
         "total": len(room.questions) or QUESTIONS_PER_MATCH,
         "wordbook_id": room.wordbook_id,
+        "host_id": room.host_id,
     }
     if room.status == "playing" and room.questions:
         q = room.questions[room.current_index]
@@ -294,7 +486,6 @@ def _missed_questions(room: Room, user_id: int | None) -> list[dict]:
 
 
 def _persist_missed_vocab(room: Room) -> None:
-    """Auto-add each human player's missed words into their vocab notebook."""
     humans = [p for p in room.players.values() if not p.is_bot]
     if not humans or not room.questions:
         return
@@ -338,6 +529,7 @@ async def broadcast(room: Room, event: str, extra: dict | None = None) -> None:
         player = room.players.get(pid)
         if player:
             player.websocket = None
+    _persist_room(room)
 
 
 async def set_ready(room: Room, user_id: int, ready: bool = True) -> None:
@@ -345,6 +537,7 @@ async def set_ready(room: Room, user_id: int, ready: bool = True) -> None:
     if not player:
         raise ValueError("不在房间内")
     player.ready = ready
+    _persist_room(room)
     humans = [p for p in room.players.values() if not p.is_bot]
     if room.mode == "bot" and ready:
         await start_match(room)
@@ -359,7 +552,12 @@ async def start_match(room: Room) -> None:
         return
     host = room.players.get(room.host_id) or next(iter(room.players.values()))
     with Session(database.engine) as session:
-        pool = _pick_words(session, host.user_id if host.user_id > 0 else room.host_id, room.wordbook_id, QUESTIONS_PER_MATCH)
+        pool = _pick_words(
+            session,
+            host.user_id if host.user_id > 0 else room.host_id,
+            room.wordbook_id,
+            QUESTIONS_PER_MATCH,
+        )
     room.questions = _build_questions(pool)
     room.status = "playing"
     room.current_index = 0
@@ -367,6 +565,7 @@ async def start_match(room: Room) -> None:
     for p in room.players.values():
         p.score = 0
         p.answers = {}
+    _persist_room(room)
     await broadcast(room, "question")
     if room.mode == "bot":
         room.bot_task = asyncio.create_task(_bot_loop(room))
@@ -443,4 +642,13 @@ async def attach_ws(room: Room, user_id: int, websocket) -> None:
     if not player:
         raise ValueError("请先加入房间")
     player.websocket = websocket
+    _rooms[room.code] = room
     await websocket.send_json({"event": "lobby", "data": public_state(room, for_user=user_id)})
+
+
+def mark_offline(room: Room, user_id: int) -> None:
+    player = room.players.get(user_id)
+    if not player:
+        return
+    player.websocket = None
+    _persist_room(room)

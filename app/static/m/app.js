@@ -14,7 +14,7 @@
     eyecare: localStorage.getItem('wp_eyecare') === '1',
     reader: null,
     study: null, // bidirectional study session
-    pk: { room: null, ws: null, wordbookId: null },
+    pk: { room: null, ws: null, wordbookId: null, pollTimer: null },
     bookTranslate: {
       scan: null,
       progress: null,
@@ -1070,32 +1070,107 @@
     if (room?.status === 'finished') return renderPkResult(root, room);
 
     const books = state.wordbooks || [];
+    const meId = state.user?.id;
+    const players = room?.players || [];
+    const humans = players.filter((p) => !p.is_bot);
+    const me = humans.find((p) => p.user_id === meId) || humans[0];
+    const waitingLobby = room?.status === 'waiting';
+
     root.innerHTML = `
-      <div class="m-hero"><h1>单词对战</h1><p>可选词书；不选则从大词典随机出题。</p></div>
-      <div class="m-card">
-        <h2>题库</h2>
-        <select class="m-input" id="pkBook">
-          <option value="">随机词典（words）</option>
-          ${books.map((b) => `<option value="${b.id}" ${state.pk.wordbookId == b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
-        </select>
-        <button class="m-btn m-btn-primary m-btn-block" id="pkBot" type="button">VS 机器人</button>
-        <button class="m-btn m-btn-sky m-btn-block" id="pkCreate" type="button" style="margin-top:8px;">创建双人房</button>
-      </div>
-      <div class="m-card">
-        <h2>加入房间</h2>
-        <input class="m-input" id="pkCode" placeholder="6 位房间码" maxlength="6" />
-        <button class="m-btn m-btn-mint m-btn-block" id="pkJoin" type="button">加入</button>
-        ${room?.status === 'waiting' ? `
-          <p style="margin-top:12px;">房间 <strong>${escapeHtml(room.code)}</strong></p>
-          <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button">准备开战</button>` : ''}
-      </div>`;
+      <div class="m-hero"><h1>单词对战</h1><p>双人线上竞赛：创建房间 → 分享房间码 → 双方准备。</p></div>
+      ${waitingLobby ? `
+        <div class="m-card">
+          <h2>房间大厅</h2>
+          <p class="m-muted">把房间码发给好友（6 位）</p>
+          <div style="display:flex;gap:8px;align-items:center;margin:10px 0;">
+            <strong style="font-size:1.6rem;letter-spacing:0.12em;">${escapeHtml(room.code)}</strong>
+            <button class="m-btn m-btn-ghost" type="button" id="pkCopy">复制</button>
+          </div>
+          <div class="m-list">
+            ${players.map((p) => `
+              <div class="m-list-item">
+                <span>
+                  <strong>${escapeHtml(p.name)}</strong>
+                  ${p.user_id === room.host_id ? '<span class="m-chip">房主</span>' : ''}
+                  ${p.is_bot ? '<span class="m-chip">机器人</span>' : ''}
+                </span>
+                <span class="m-chip">${p.ready ? '已准备' : (p.online ? '在线' : '离线')}</span>
+              </div>`).join('')}
+          </div>
+          <p class="m-muted" style="margin-top:8px;">
+            ${room.mode === 'pvp'
+              ? (humans.length < 2 ? '等待对手加入…' : (humans.every((p) => p.ready) ? '即将开始…' : '双方都点「准备开战」后开始'))
+              : '点击准备后立即开战'}
+          </p>
+          <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button">
+            ${me?.ready ? '已准备（等待对方）' : '准备开战'}
+          </button>
+          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeave" type="button" style="margin-top:8px;">离开房间</button>
+        </div>
+      ` : `
+        <div class="m-card">
+          <h2>题库</h2>
+          <select class="m-input" id="pkBook">
+            <option value="">随机词典</option>
+            ${books.map((b) => `<option value="${b.id}" ${state.pk.wordbookId == b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
+          </select>
+          <button class="m-btn m-btn-primary m-btn-block" id="pkBot" type="button">VS 机器人</button>
+          <button class="m-btn m-btn-sky m-btn-block" id="pkCreate" type="button" style="margin-top:8px;">创建双人房</button>
+        </div>
+        <div class="m-card">
+          <h2>加入房间</h2>
+          <input class="m-input" id="pkCode" placeholder="输入 6 位房间码" maxlength="8" autocomplete="off" />
+          <button class="m-btn m-btn-mint m-btn-block" id="pkJoin" type="button">加入</button>
+        </div>
+      `}`;
+
     $('#pkBook')?.addEventListener('change', (e) => {
       state.pk.wordbookId = e.target.value ? Number(e.target.value) : null;
     });
     $('#pkBot')?.addEventListener('click', () => startPk('bot'));
     $('#pkCreate')?.addEventListener('click', () => startPk('pvp'));
     $('#pkJoin')?.addEventListener('click', joinPk);
-    $('#pkReady')?.addEventListener('click', () => state.pk.ws?.send(JSON.stringify({ action: 'ready' })));
+    $('#pkReady')?.addEventListener('click', () => {
+      if (me?.ready) return toast('已准备，等待对方');
+      ensurePkWs(room.code);
+      state.pk.ws?.send(JSON.stringify({ action: 'ready' }));
+    });
+    $('#pkCopy')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(room.code);
+        toast('房间码已复制');
+      } catch (_) {
+        toast(room.code);
+      }
+    });
+    $('#pkLeave')?.addEventListener('click', () => {
+      try { state.pk.ws?.close(); } catch (_) {}
+      state.pk.ws = null;
+      state.pk.room = null;
+      stopPkPoll();
+      renderPk();
+    });
+  }
+
+  function stopPkPoll() {
+    if (state.pk.pollTimer) {
+      clearInterval(state.pk.pollTimer);
+      state.pk.pollTimer = null;
+    }
+  }
+
+  function startPkPoll(code) {
+    stopPkPoll();
+    state.pk.pollTimer = setInterval(async () => {
+      if (state.tab !== 'pk' || !state.pk.room || state.pk.room.code !== code) return;
+      if (state.pk.room.status === 'finished') return stopPkPoll();
+      try {
+        const room = await api(`/api/pk/rooms/${encodeURIComponent(code)}`);
+        state.pk.room = room;
+        if (state.tab === 'pk') renderPk();
+        if (room.status === 'playing' || room.status === 'finished') stopPkPoll();
+      } catch (_) { /* room may expire */ }
+    }, 2500);
   }
 
   async function startPk(mode) {
@@ -1106,28 +1181,40 @@
       });
       state.pk.room = room;
       connectPkWs(room.code);
+      if (mode === 'pvp') startPkPoll(room.code);
       if (mode === 'bot') setTimeout(() => state.pk.ws?.send(JSON.stringify({ action: 'ready' })), 400);
       renderPk();
-      toast(`房间 ${room.code}`);
+      toast(mode === 'pvp' ? `房间 ${room.code}，发给好友加入` : `房间 ${room.code}`);
     } catch (e) { toast(e.message); }
   }
 
   async function joinPk() {
-    const code = ($('#pkCode')?.value || '').trim().toUpperCase();
+    const code = ($('#pkCode')?.value || '').trim().toUpperCase().replace(/[\s\-_]/g, '');
     if (!code) return toast('输入房间码');
     try {
       const room = await api('/api/pk/rooms/join', { method: 'POST', body: { code } });
       state.pk.room = room;
       connectPkWs(room.code);
+      startPkPoll(room.code);
       renderPk();
+      toast(`已加入 ${room.code}`);
     } catch (e) { toast(e.message); }
+  }
+
+  function ensurePkWs(code) {
+    if (state.pk.ws && state.pk.ws.readyState <= 1 && state.pk.room?.code === code) return;
+    connectPkWs(code);
   }
 
   function connectPkWs(code) {
     try { state.pk.ws?.close(); } catch (_) {}
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/pk/ws/${code}`);
+    const ws = new WebSocket(`${proto}://${location.host}/api/pk/ws/${encodeURIComponent(code)}`);
     state.pk.ws = ws;
+    ws.onopen = () => {
+      // keep cookie session; some browsers need a first ping
+      try { ws.send(JSON.stringify({ action: 'ping' })); } catch (_) {}
+    };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data || '{}');
       if (msg.event === 'error') return toast(msg.data?.detail || 'PK 错误');
@@ -1136,8 +1223,14 @@
         const n = (msg.data?.missed_words || []).length;
         if (n) toast(`${n} 个不会的词已进生词本`);
         refreshVocab().catch(() => {});
+        stopPkPoll();
       }
+      if (msg.event === 'question' || msg.event === 'playing') stopPkPoll();
       if (state.tab === 'pk') renderPk();
+    };
+    ws.onclose = () => {
+      // REST poll keeps lobby alive if WS drops on mobile networks
+      if (state.pk.room?.status === 'waiting' && state.pk.room?.code) startPkPoll(state.pk.room.code);
     };
   }
 

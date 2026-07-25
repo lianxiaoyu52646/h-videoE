@@ -46,7 +46,7 @@ async def join_pk_room(
 ):
     try:
         room = await pk_rooms.join_room(
-            code=body.code.strip().upper(),
+            code=pk_rooms.normalize_code(body.code),
             user_id=user.id,
             display_name=_user_label(user),
         )
@@ -62,7 +62,7 @@ def get_pk_room(
 ):
     room = pk_rooms.get_room(code)
     if not room:
-        raise HTTPException(status_code=404, detail="房间不存在")
+        raise HTTPException(status_code=404, detail="房间不存在或已过期")
     return pk_rooms.public_state(room, for_user=user.id)
 
 
@@ -82,16 +82,17 @@ async def pk_websocket(websocket: WebSocket, code: str):
         await websocket.close(code=4401)
         return
 
-    room = pk_rooms.get_room(code)
+    norm = pk_rooms.normalize_code(code)
+    room = pk_rooms.get_room(norm)
     if not room:
-        await websocket.send_json({"event": "error", "data": {"detail": "房间不存在"}})
+        await websocket.send_json({"event": "error", "data": {"detail": "房间不存在或已过期"}})
         await websocket.close(code=4404)
         return
 
     try:
         if user.id not in room.players:
-            await pk_rooms.join_room(code=code, user_id=user.id, display_name=_user_label(user))
-            room = pk_rooms.get_room(code)
+            await pk_rooms.join_room(code=norm, user_id=user.id, display_name=_user_label(user))
+            room = pk_rooms.get_room(norm)
         await pk_rooms.attach_ws(room, user.id, websocket)
     except ValueError as exc:
         await websocket.send_json({"event": "error", "data": {"detail": str(exc)}})
@@ -102,9 +103,12 @@ async def pk_websocket(websocket: WebSocket, code: str):
         while True:
             msg = await websocket.receive_json()
             action = (msg.get("action") or "").strip()
+            room = pk_rooms.get_room(norm) or room
             try:
                 if action == "ready":
                     await pk_rooms.set_ready(room, user.id, True)
+                elif action == "unready":
+                    await pk_rooms.set_ready(room, user.id, False)
                 elif action == "answer":
                     await pk_rooms.submit_answer(room, user.id, int(msg.get("choice", -1)))
                 elif action == "ping":
@@ -116,4 +120,4 @@ async def pk_websocket(websocket: WebSocket, code: str):
     except WebSocketDisconnect:
         player = room.players.get(user.id)
         if player:
-            player.websocket = None
+            pk_rooms.mark_offline(room, user.id)
