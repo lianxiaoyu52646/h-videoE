@@ -1,3 +1,10 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+databases:
+  - name: wordpop-db
+    plan: free
+    databaseName: wordpop
+    user: wordpop
+
 services:
   - type: web
     name: wordpop
@@ -22,9 +29,3 @@ services:
           property: connectionString
       - key: PYTHON_VERSION
         value: "3.11.9"
-
-  - type: pserv
-    name: wordpop-db
-    plan: free
-    databaseName: wordpop
-    user: wordpop
