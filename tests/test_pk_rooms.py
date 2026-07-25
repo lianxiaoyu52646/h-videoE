@@ -81,6 +81,27 @@ def test_independent_answers_do_not_block(client, monkeypatch):
     asyncio.get_event_loop().run_until_complete(_run())
 
 
+def test_three_players_can_join_one_room(client, monkeypatch):
+    monkeypatch.setattr("app.config.settings.app_mode", "web")
+    monkeypatch.setattr("app.config.settings.local_auto_user", False)
+    monkeypatch.setattr("app.config.settings.auto_install_wordbooks", False)
+
+    client.post("/api/auth/register", json={"username": "pk_m1", "password": "secret12"})
+    created = client.post("/api/pk/rooms", json={"mode": "pvp"})
+    code = created.json()["code"]
+    client.post("/api/auth/logout")
+
+    client.post("/api/auth/register", json={"username": "pk_m2", "password": "secret12"})
+    assert client.post("/api/pk/rooms/join", json={"code": code}).status_code == 200
+    client.post("/api/auth/logout")
+
+    client.post("/api/auth/register", json={"username": "pk_m3", "password": "secret12"})
+    third = client.post("/api/pk/rooms/join", json={"code": code})
+    assert third.status_code == 200, third.text
+    humans = [p for p in third.json()["players"] if not p["is_bot"]]
+    assert len(humans) == 3
+
+
 def test_bot_room_rejects_join(client, monkeypatch):
     monkeypatch.setattr("app.config.settings.app_mode", "web")
     monkeypatch.setattr("app.config.settings.local_auto_user", False)

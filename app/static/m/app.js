@@ -1063,6 +1063,49 @@
   }
 
   // ---------- PK ----------
+  function pkAvatarMeta(name, index) {
+    const palettes = ['pk-av-coral', 'pk-av-aqua', 'pk-av-sky', 'pk-av-lemon', 'pk-av-violet', 'pk-av-mint'];
+    const bg = palettes[Math.abs(Number(index) || 0) % palettes.length];
+    const short = (name || '?').trim().slice(0, 1) || '?';
+    return { bg, short };
+  }
+
+  function pkPlayerRaceCard(p, { meId, total = 20, hostId, rank, mode = 'race' } = {}) {
+    const isMe = p.user_id === meId;
+    const online = isMe || p.online || p.is_bot;
+    const av = pkAvatarMeta(p.name, p.user_id || rank || 0);
+    const progress = Number(p.progress) || 0;
+    const tot = Math.max(1, total || 20);
+    let pct = 12;
+    let meta = online ? '在线' : '离线';
+    if (mode === 'lobby') {
+      pct = p.ready ? 100 : 14;
+      meta = p.ready ? '已准备' : (online ? '在线 · 未准备' : '离线');
+    } else {
+      pct = Math.min(100, Math.round((progress / tot) * 100));
+      meta = p.finished ? '已完成全部题目' : `${progress}/${tot} 题`;
+    }
+    return `
+      <div class="pk-racer ${isMe ? 'is-me' : ''} ${p.finished ? 'is-done' : ''} ${p.ready && mode === 'lobby' ? 'is-ready' : ''}">
+        <div class="pk-racer-rank">${rank != null ? rank : '·'}</div>
+        <div class="pk-avatar ${av.bg}" aria-hidden="true">${escapeHtml(av.short)}</div>
+        <div class="pk-racer-body">
+          <div class="pk-racer-top">
+            <strong class="pk-racer-name">${escapeHtml(p.name)}${isMe ? ' · 我' : ''}</strong>
+            <span class="pk-racer-score">${mode === 'lobby' ? (p.ready ? '✓' : '…') : (p.score ?? 0)}</span>
+          </div>
+          <div class="pk-racer-tags">
+            ${p.user_id === hostId ? '<span class="pk-tag host">房主</span>' : ''}
+            ${p.is_bot ? '<span class="pk-tag bot">机器人</span>' : ''}
+            ${mode === 'lobby' && p.ready ? '<span class="pk-tag ready">就绪</span>' : ''}
+            ${p.finished ? '<span class="pk-tag done">完成</span>' : ''}
+          </div>
+          <div class="pk-racer-bar"><i style="width:${pct}%"></i></div>
+          <div class="pk-racer-meta">${escapeHtml(meta)}</div>
+        </div>
+      </div>`;
+  }
+
   function renderPk() {
     const root = $('#view-pk');
     const room = state.pk.room;
@@ -1076,44 +1119,44 @@
     const hasBot = players.some((p) => p.is_bot);
     const me = humans.find((p) => p.user_id === meId) || humans[0];
     const waitingLobby = room?.status === 'waiting';
+    const canStart = humans.length >= 2 || hasBot;
 
     root.innerHTML = `
-      <div class="m-hero"><h1>单词对战</h1><p>同一套题各自作答，全部答完后比分排名。</p></div>
+      <div class="m-hero pk-hero">
+        <h1>单词对战</h1>
+        <p>多人同题竞速 · 各自作答 · 全员完成后排名</p>
+      </div>
       ${waitingLobby ? `
-        <div class="m-card">
-          <h2>房间大厅</h2>
-          <p class="m-muted">把房间码发给好友（6 位）</p>
-          <div style="display:flex;gap:8px;align-items:center;margin:10px 0;">
-            <strong style="font-size:1.6rem;letter-spacing:0.12em;">${escapeHtml(room.code)}</strong>
-            <button class="m-btn m-btn-ghost" type="button" id="pkCopy">复制</button>
+        <div class="pk-lobby">
+          <div class="pk-code-card">
+            <div class="pk-code-label">房间码 · 发给好友一起加入</div>
+            <div class="pk-code-row">
+              <span class="pk-code">${escapeHtml(room.code)}</span>
+              <button class="m-btn m-btn-ghost" type="button" id="pkCopy">复制</button>
+            </div>
+            <div class="pk-code-count">${players.length} 人在房</div>
           </div>
-          <div class="m-list">
-            ${players.map((p) => {
-              const isMe = p.user_id === meId;
-              const online = isMe || p.online || p.is_bot;
-              return `
-              <div class="m-list-item">
-                <span>
-                  <strong>${escapeHtml(p.name)}${isMe ? '（我）' : ''}</strong>
-                  ${p.user_id === room.host_id ? '<span class="m-chip">房主</span>' : ''}
-                  ${p.is_bot ? '<span class="m-chip">机器人</span>' : ''}
-                </span>
-                <span class="m-chip">${p.ready ? '已准备' : (online ? '在线' : '离线')}</span>
-              </div>`;
-            }).join('')}
+          <div class="pk-racer-list">
+            ${players.map((p, i) => pkPlayerRaceCard(p, {
+              meId,
+              total: 20,
+              hostId: room.host_id,
+              rank: i + 1,
+              mode: 'lobby',
+            })).join('')}
           </div>
-          <p class="m-muted" style="margin-top:8px;">
-            ${hasBot || humans.length >= 2
-              ? (humans.every((p) => p.ready) ? '即将开始…' : '参与者都点「准备开战」后开始（各自独立答题）')
-              : '等待对手加入，或邀请机器人陪练'}
+          <p class="pk-hint">
+            ${canStart
+              ? (humans.every((p) => p.ready) ? '全员已准备，即将开始…' : '所有真人点「准备开战」后开始（可不限人数）')
+              : '邀请好友加入，或先邀请机器人陪练'}
           </p>
-          ${!hasBot && humans.length < 2 ? `
-            <button class="m-btn m-btn-sky m-btn-block" id="pkInviteBot" type="button">邀请机器人</button>
-          ` : ''}
-          <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button" style="margin-top:8px;">
-            ${me?.ready ? '已准备' : '准备开战'}
-          </button>
-          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeave" type="button" style="margin-top:8px;">退出房间</button>
+          <div class="pk-actions">
+            ${!hasBot ? `<button class="m-btn m-btn-sky m-btn-block" id="pkInviteBot" type="button">邀请机器人</button>` : ''}
+            <button class="m-btn m-btn-sun m-btn-block" id="pkReady" type="button">
+              ${me?.ready ? '已准备 ✓' : '准备开战'}
+            </button>
+            <button class="m-btn m-btn-ghost m-btn-block" id="pkLeave" type="button">退出房间</button>
+          </div>
         </div>
       ` : `
         <div class="m-card">
@@ -1123,7 +1166,7 @@
             ${books.map((b) => `<option value="${b.id}" ${state.pk.wordbookId == b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
           </select>
           <button class="m-btn m-btn-primary m-btn-block" id="pkBot" type="button">VS 机器人</button>
-          <button class="m-btn m-btn-sky m-btn-block" id="pkCreate" type="button" style="margin-top:8px;">创建双人房</button>
+          <button class="m-btn m-btn-sky m-btn-block" id="pkCreate" type="button" style="margin-top:8px;">创建房间</button>
         </div>
         <div class="m-card">
           <h2>加入房间</h2>
@@ -1212,7 +1255,7 @@
       startPkPoll(room.code);
       if (mode === 'bot') setTimeout(() => state.pk.ws?.send(JSON.stringify({ action: 'ready' })), 400);
       renderPk();
-      toast(mode === 'pvp' ? `房间 ${room.code}，发给好友或邀请机器人` : `房间 ${room.code}`);
+      toast(mode === 'pvp' ? `房间 ${room.code}，分享给好友一起加入` : `房间 ${room.code}`);
     } catch (e) { toast(e.message); }
   }
 
@@ -1266,37 +1309,37 @@
     const meId = state.user?.id;
     const players = room.players || [];
     const me = players.find((p) => p.user_id === meId) || players.find((p) => !p.is_bot) || players[0];
-    const others = players.filter((p) => p !== me);
     const q = room.question || {};
     const total = room.total || 20;
     const myIdx = (room.your_index ?? me?.current_index ?? 0);
     const feedback = state.pk.feedback;
     const waitingOthers = !!room.you_finished;
+    const doneCount = players.filter((p) => p.finished).length;
 
     root.innerHTML = `
-      <div class="pk-scoreboard">
-        <div class="pk-player">
-          <div>${escapeHtml(me?.name || '我')}</div>
-          <div class="score">${me?.score ?? room.your_score ?? 0}</div>
-          <div class="m-muted" style="font-size:0.75rem;">${me?.progress ?? room.your_progress ?? 0}/${total}</div>
-        </div>
-        <div>${waitingOthers ? '已答完' : `${Math.min(total, myIdx + 1)}/${total}`}</div>
-        <div class="pk-player">
-          <div>${escapeHtml(others[0]?.name || '对手')}</div>
-          <div class="score">${others[0]?.score ?? 0}</div>
-          <div class="m-muted" style="font-size:0.75rem;">${others[0]?.progress ?? 0}/${total}${others[0]?.finished ? ' · 完成' : ''}</div>
-        </div>
+      <div class="pk-live-head">
+        <div class="pk-live-title">多人竞速</div>
+        <div class="pk-live-sub">${waitingOthers ? '你已答完，等待其他人…' : `第 ${Math.min(total, myIdx + 1)} / ${total} 题`} · ${doneCount}/${players.length} 人完成</div>
+      </div>
+      <div class="pk-racer-list pk-racer-list-live">
+        ${players.map((p, i) => pkPlayerRaceCard(p, {
+          meId,
+          total,
+          hostId: room.host_id,
+          rank: i + 1,
+          mode: 'race',
+        })).join('')}
       </div>
       ${waitingOthers ? `
-        <div class="m-card">
-          <h2>你已答完</h2>
-          <p class="m-muted">当前得分 ${room.your_score ?? me?.score ?? 0}。等待对手完成全部题目后出排名…</p>
+        <div class="pk-wait-card">
+          <h2>你已交卷</h2>
+          <p>得分 <strong>${room.your_score ?? me?.score ?? 0}</strong>。其他人答完后自动出排名。</p>
           <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button">退出房间</button>
         </div>
       ` : `
-        <div class="m-card">
-          <h2>看中文选英文</h2>
-          <p style="font-size:1.15rem;">${escapeHtml(q.prompt || '')}</p>
+        <div class="pk-quiz-card">
+          <div class="pk-quiz-label">看中文选英文</div>
+          <p class="pk-quiz-prompt">${escapeHtml(q.prompt || '')}</p>
           <div class="pk-options" id="pkOptions">
             ${(q.options || []).map((opt, i) => {
               let cls = '';
@@ -1305,11 +1348,12 @@
                 if (i === feedback.choice && !feedback.is_correct) cls = 'wrong';
               }
               return `<button type="button" class="${cls}" data-choice="${i}" ${feedback && feedback.index === q.index ? 'disabled' : ''}>
-                ${String.fromCharCode(65 + i)}. ${escapeHtml(opt)}
+                <span class="pk-opt-key">${String.fromCharCode(65 + i)}</span>
+                <span>${escapeHtml(opt)}</span>
               </button>`;
             }).join('')}
           </div>
-          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button" style="margin-top:10px;">退出房间</button>
+          <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button" style="margin-top:12px;">退出房间</button>
         </div>
       `}`;
 
@@ -1322,7 +1366,6 @@
       };
     });
 
-    // Clear short-lived feedback so next question renders cleanly after paint.
     if (feedback && feedback.index === q.index) {
       setTimeout(() => {
         if (state.pk.feedback === feedback) state.pk.feedback = null;
@@ -1334,15 +1377,34 @@
 
   function renderPkResult(root, room) {
     const missed = room.missed_words || [];
+    const results = room.results || [];
     root.innerHTML = `
-      <div class="m-hero"><h1>对战结束</h1>
-        <p>${missed.length ? `答错/未答的 ${missed.length} 词已自动进生词本` : '全部答对，太强了！'}</p>
+      <div class="m-hero pk-hero">
+        <h1>对战结束</h1>
+        <p>${missed.length ? `${missed.length} 个错词已进生词本` : '全部答对，太强了！'}</p>
       </div>
-      <div class="m-card">
-        <h2>排名</h2>
-        ${(room.results || []).map((r, i) => `
-          <div class="m-list-item"><strong>${i + 1}. ${escapeHtml(r.name)}</strong><span class="m-chip">${r.score} 分</span></div>
-        `).join('')}
+      <div class="pk-podium">
+        ${results.slice(0, 3).map((r, i) => `
+          <div class="pk-podium-slot place-${i + 1}">
+            <div class="pk-podium-medal">${['🥇', '🥈', '🥉'][i]}</div>
+            <div class="pk-podium-name">${escapeHtml(r.name)}</div>
+            <div class="pk-podium-score">${r.score} 分</div>
+          </div>`).join('')}
+      </div>
+      <div class="pk-racer-list">
+        ${results.map((r, i) => pkPlayerRaceCard({
+          ...r,
+          progress: room.total || 20,
+          finished: true,
+          ready: true,
+          online: true,
+        }, {
+          meId: state.user?.id,
+          total: room.total || 20,
+          hostId: room.host_id,
+          rank: i + 1,
+          mode: 'race',
+        })).join('')}
       </div>
       ${missed.length ? `<div class="m-card"><h2>已进生词本</h2>
         ${missed.map((w) => `
@@ -1350,7 +1412,7 @@
             <span><strong>${escapeHtml(w.word)}</strong><span class="m-muted"> ${escapeHtml(w.translation || '')}</span></span>
             <span class="m-chip">生词</span>
           </div>`).join('')}</div>` : ''}
-      <button class="m-btn m-btn-primary m-btn-block" id="pkAgain" type="button">再来</button>`;
+      <button class="m-btn m-btn-primary m-btn-block" id="pkAgain" type="button">再来一局</button>`;
     $('#pkAgain').onclick = () => {
       state.pk.room = null;
       state.pk.feedback = null;

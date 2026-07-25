@@ -448,15 +448,13 @@ async def join_room(*, code: str, user_id: int, display_name: str) -> Room:
         if room.status == "playing" and user_id not in room.players:
             raise ValueError("对战已开始，无法加入")
         if room.mode == "bot":
-            raise ValueError("机器人房不可加入，请创建「双人房」或让房主邀请机器人")
+            raise ValueError("机器人房不可加入，请「创建房间」后邀请好友或机器人")
         if user_id in room.players:
             _touch(room.players[user_id])
             return _cache_and_persist(room)
-        humans = _humans(room)
-        if len(humans) >= 2:
-            raise ValueError("房间已满（最多 2 人）")
-        if _has_bot(room) and len(humans) >= 1:
-            raise ValueError("房间已有机器人，请另开房间")
+        # Soft cap only — prevents runaway rooms on free tier.
+        if len(room.players) >= 32:
+            raise ValueError("房间人数已达上限（32）")
         player = PlayerState(user_id=user_id, name=display_name or f"玩家{user_id}")
         _touch(player)
         room.players[user_id] = player
@@ -470,8 +468,8 @@ async def invite_bot(room: Room, user_id: int) -> Room:
         raise ValueError("不在房间内")
     if _has_bot(room):
         raise ValueError("房间里已有机器人")
-    if len(_humans(room)) >= 2:
-        raise ValueError("双人房已满，不能再加机器人")
+    if len(room.players) >= 32:
+        raise ValueError("房间人数已达上限")
     room.players[BOT_ID] = PlayerState(
         user_id=BOT_ID, name="泡泡机器人", ready=True, is_bot=True
     )
@@ -530,11 +528,16 @@ def public_state(room: Room, for_user: int | None = None) -> dict:
                 "current_index": p.current_index,
             }
         )
+    if room.status == "playing":
+        players.sort(key=lambda x: (-x["score"], -x["progress"], x["name"]))
+    elif room.status == "waiting":
+        players.sort(key=lambda x: (0 if x["user_id"] == room.host_id else 1, x["name"]))
     payload: dict[str, Any] = {
         "code": room.code,
         "mode": room.mode,
         "status": room.status,
         "players": players,
+        "player_count": len(players),
         "total": total,
         "wordbook_id": room.wordbook_id,
         "host_id": room.host_id,
