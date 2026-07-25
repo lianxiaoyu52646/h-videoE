@@ -1391,21 +1391,10 @@ def get_wordbook(session: Session, wordbook_id: int, user_id: int | None = None)
 
 
 def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
-    entry_count = int(
-        session.exec(
-            select(func.count(models.WordBookEntry.id)).where(models.WordBookEntry.wordbook_id == wordbook.id)
-        ).one()
-        or 0
-    )
-    # JSON-backed catalog books keep words on disk; use catalog.entry_count.
-    if entry_count == 0:
-        cat = session.exec(
-            select(models.WordBookCatalog).where(
-                models.WordBookCatalog.installed_wordbook_id == wordbook.id
-            )
-        ).first()
-        if cat and cat.entry_count:
-            entry_count = int(cat.entry_count)
+    from app.services import wordbook_study
+
+    # JSON-backed books may have a few sparse SQL rows (stars only); never use that as total.
+    entry_count = wordbook_study.wordbook_entry_total(session, wordbook.id)
     learned_count = int(
         session.exec(
             select(func.count(models.VocabItem.id)).where(models.VocabItem.wordbook_id == wordbook.id)
@@ -1416,8 +1405,6 @@ def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
     data["entry_count"] = entry_count
     data["learned_count"] = learned_count
     try:
-        from app.services import wordbook_study
-
         snap = wordbook_study.progress_snapshot(session, wordbook.id, total=entry_count)
         data["study_seen"] = int(
             min(entry_count, max(snap.get("cursor", 0), snap.get("learned", 0) + snap.get("unknown", 0)))

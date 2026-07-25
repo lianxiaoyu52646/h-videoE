@@ -115,6 +115,11 @@ def get_or_create_memory(
 get_or_create_progress = get_or_create_memory
 
 
+def wordbook_entry_total(session: Session, wordbook_id: int) -> int:
+    """Authoritative word count (JSON catalog length, else SQL rows)."""
+    return _total_entries(session, wordbook_id)
+
+
 def _recount_memory(session: Session, memory: models.WordBookMemory) -> None:
     known = int(
         session.exec(
@@ -143,17 +148,25 @@ def _recount_memory(session: Session, memory: models.WordBookMemory) -> None:
 
 
 def progress_payload(session: Session, memory: models.WordBookMemory) -> dict:
-    total = memory.total_count or _total_entries(session, memory.wordbook_id)
-    seen = min(total, max(memory.cursor_offset, memory.known_count + memory.unknown_count))
-    percent = round((seen / total) * 100, 1) if total else 0.0
+    # Always use live catalog/JSON total — sparse WordBookEntry rows must not shrink the book.
+    total = _total_entries(session, memory.wordbook_id)
+    cursor = int(memory.cursor_offset or 0)
+    marked = int(memory.known_count or 0) + int(memory.unknown_count or 0)
+    # List/study headers show 1-based position (word N of total), matching the study UI.
+    if total and (cursor or marked):
+        display_pos = min(total, max(cursor + 1, marked))
+    else:
+        display_pos = 0
+    percent = round((display_pos / total) * 100, 1) if total else 0.0
+    completed = bool(total and cursor >= total - 1 and display_pos >= total)
     return {
         "total": total,
         "learned": memory.known_count,
         "unknown": memory.unknown_count,
-        "cursor": memory.cursor_offset,
+        "cursor": cursor,
         "percent": percent,
-        "label": f"{seen} / {total}",
-        "completed": bool(memory.is_completed),
+        "label": f"{display_pos} / {total}",
+        "completed": completed,
         "last_studied_at": memory.last_studied_at.isoformat() if memory.last_studied_at else None,
     }
 
@@ -189,11 +202,18 @@ def progress_snapshot(
     if not row:
         return empty
     payload = progress_payload(session, row)
-    if total is not None:
+    if total is not None and int(payload.get("total") or 0) != total_n:
+        # Recompute display against caller-provided total (same 1-based rule).
+        cursor = int(payload.get("cursor") or 0)
+        marked = int(payload.get("learned") or 0) + int(payload.get("unknown") or 0)
+        if total_n and (cursor or marked):
+            display_pos = min(total_n, max(cursor + 1, marked))
+        else:
+            display_pos = 0
         payload["total"] = total_n
-        seen = min(total_n, max(payload["cursor"], payload["learned"] + payload["unknown"]))
-        payload["percent"] = round((seen / total_n) * 100, 1) if total_n else 0.0
-        payload["label"] = f"{seen} / {total_n}"
+        payload["percent"] = round((display_pos / total_n) * 100, 1) if total_n else 0.0
+        payload["label"] = f"{display_pos} / {total_n}"
+        payload["completed"] = bool(total_n and cursor >= total_n - 1 and display_pos >= total_n)
     return payload
 
 
