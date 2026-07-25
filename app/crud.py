@@ -1406,9 +1406,12 @@ def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
         ).first()
         if cat and cat.entry_count:
             entry_count = int(cat.entry_count)
-    learned_count = session.exec(
-        select(func.count(models.VocabItem.id)).where(models.VocabItem.wordbook_id == wordbook.id)
-    ).one()
+    learned_count = int(
+        session.exec(
+            select(func.count(models.VocabItem.id)).where(models.VocabItem.wordbook_id == wordbook.id)
+        ).one()
+        or 0
+    )
     data = wordbook.model_dump()
     data["entry_count"] = entry_count
     data["learned_count"] = learned_count

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlmodel import Session
 
 from app import crud, schemas
 from app import database
+from app.config import settings
 from app.services import wordbook_catalog, wordbook_import, wordbook_study
 from app.services.wordbook_entry_format import normalize_catalog_entry
 
 router = APIRouter(prefix="/api/wordbooks", tags=["wordbooks"])
+logger = logging.getLogger(__name__)
 
 
 def _catalog_to_read(row, manifest: dict | None = None) -> dict:
@@ -18,21 +22,46 @@ def _catalog_to_read(row, manifest: dict | None = None) -> dict:
     return data
 
 
+def _ensure_catalog_shells(session: Session) -> None:
+    """Install WordBook shells for curated JSON catalogs; keep session usable."""
+    if not settings.auto_install_wordbooks:
+        return
+    try:
+        wordbook_catalog.ensure_all_catalog_installed(session)
+    except Exception:
+        logger.exception("auto-install wordbooks failed")
+        session.rollback()
+        try:
+            wordbook_catalog.ensure_all_catalog_installed(session)
+        except Exception:
+            logger.exception("auto-install wordbooks retry failed")
+            session.rollback()
+
+
 @router.get("", response_model=list[schemas.WordBookRead])
 def list_wordbooks(
     custom: bool = False,
     session: Session = Depends(database.session_dependency),
 ):
     if not custom:
-        try:
-            from app.config import settings
-
-            if settings.auto_install_wordbooks:
-                wordbook_catalog.ensure_all_catalog_installed(session)
-        except Exception:
-            pass
+        _ensure_catalog_shells(session)
     items = crud.list_wordbooks(session, custom_only=custom)
+    if not custom and not items and settings.auto_install_wordbooks:
+        _ensure_catalog_shells(session)
+        items = crud.list_wordbooks(session, custom_only=custom)
     return [crud.wordbook_to_read(session, item) for item in items]
+
+
+@router.post("/ensure")
+def ensure_wordbooks(session: Session = Depends(database.session_dependency)):
+    """Force re-link curated wordbooks for the current user (mobile empty-list recovery)."""
+    result = wordbook_catalog.ensure_all_catalog_installed(session)
+    items = crud.list_wordbooks(session)
+    return {
+        "ok": True,
+        "install": result,
+        "books": [crud.wordbook_to_read(session, item) for item in items],
+    }
 
 
 @router.post("", response_model=schemas.WordBookRead)

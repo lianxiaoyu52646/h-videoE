@@ -485,7 +485,13 @@
   // ---------- Wordbooks (star + infinite scroll) ----------
   async function loadBooks() {
     try {
-      state.wordbooks = await api('/api/wordbooks');
+      let books = await api('/api/wordbooks');
+      if (!Array.isArray(books)) books = [];
+      if (!books.length) {
+        const ensured = await api('/api/wordbooks/ensure', { method: 'POST' });
+        books = Array.isArray(ensured?.books) ? ensured.books : await api('/api/wordbooks');
+      }
+      state.wordbooks = books;
     } catch (e) {
       state.wordbooks = [];
       toast(e.message || '词书加载失败');
@@ -544,10 +550,23 @@
               </div>
               <span class="wb-cta">${cta}</span>
             </button>`;
-        }).join('') : '<div class="m-card"><p class="m-muted">暂无词书，请重新登录或稍后重试</p></div>')}
+        }).join('') : `<div class="m-card">
+            <p class="m-muted">暂无词书</p>
+            <button class="m-btn m-btn-primary" type="button" id="retryBooksBtn">重新加载词书</button>
+          </div>`)}
       </div>`;
     $$('[data-study]').forEach((btn) => {
       btn.addEventListener('click', () => startStudy(Number(btn.dataset.study)));
+    });
+    $('#retryBooksBtn')?.addEventListener('click', async () => {
+      try {
+        toast('正在加载词书…');
+        await loadBooks();
+        renderBooks();
+        if (!(state.wordbooks || []).length) toast('仍无词书，请重新登录后再试');
+      } catch (e) {
+        toast(e.message || '词书加载失败');
+      }
     });
   }
 

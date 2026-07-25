@@ -77,7 +77,7 @@ def register(
         if settings.auto_install_wordbooks:
             wordbook_catalog.ensure_all_catalog_installed(session, user_id=user.id)
     except Exception:
-        pass
+        session.rollback()
     return _issue_session(response, session, user)
 
 
@@ -96,6 +96,13 @@ def login(
     user = security.authenticate_password(session, username, password)
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    try:
+        from app.services import wordbook_catalog
+
+        if settings.auto_install_wordbooks:
+            wordbook_catalog.ensure_all_catalog_installed(session, user_id=user.id)
+    except Exception:
+        session.rollback()
     return _issue_session(response, session, user)
 
 

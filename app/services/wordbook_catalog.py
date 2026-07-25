@@ -6,10 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlmodel import Session, func, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app import crud, models, security
-from app.services import wordbook_json_store
 
 
 logger = logging.getLogger(__name__)
@@ -199,14 +198,44 @@ def install_catalog_wordbook(
             return row, wordbook, int(row.entry_count or expected or 0)
 
         if not wordbook:
-            wordbook = crud.create_wordbook(
-                session,
-                row.name,
-                description=row.description,
-                language="en",
-                source_name=row.source_name or row.key,
-                user_id=uid,
-            )
+            # Prefer linking an existing active book with the same name
+            # (avoids UniqueConstraint failures after partial installs).
+            wordbook = session.exec(
+                select(models.WordBook).where(
+                    models.WordBook.user_id == uid,
+                    models.WordBook.name == row.name,
+                    models.WordBook.deleted_at.is_(None),
+                )
+            ).first()
+        if not wordbook:
+            try:
+                wordbook = crud.create_wordbook(
+                    session,
+                    row.name,
+                    description=row.description,
+                    language="en",
+                    source_name=row.source_name or row.key,
+                    user_id=uid,
+                )
+            except IntegrityError:
+                session.rollback()
+                row = session.exec(
+                    select(models.WordBookCatalog).where(
+                        models.WordBookCatalog.user_id == uid,
+                        models.WordBookCatalog.key == catalog_key,
+                    )
+                ).first()
+                if not row:
+                    raise
+                wordbook = session.exec(
+                    select(models.WordBook).where(
+                        models.WordBook.user_id == uid,
+                        models.WordBook.name == row.name,
+                        models.WordBook.deleted_at.is_(None),
+                    )
+                ).first()
+                if not wordbook:
+                    raise
         else:
             wordbook.description = row.description or wordbook.description
             wordbook.source_name = row.source_name or wordbook.source_name
