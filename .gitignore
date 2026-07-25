@@ -18,8 +18,6 @@ android/app/build/
 android/.cxx/
 node_modules/
 
-app/assets/books/gutenberg/
-
 # Large local/mobile assets (generate or copy locally)
 android/app/src/main/assets/wordbooks/
 android/app/src/main/assets/books/
