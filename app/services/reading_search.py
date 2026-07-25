@@ -27,6 +27,11 @@ def ensure_fts_schema() -> None:
     global _FTS_READY
     if _FTS_READY:
         return
+    from app.config import settings
+
+    if not settings.is_sqlite:
+        _FTS_READY = True
+        return
     conn = _conn()
     try:
         cur = conn.cursor()
@@ -104,6 +109,10 @@ def index_blocks_batch(
 
 
 def index_document(session: Session, doc_id: int) -> int:
+    from app.config import settings
+
+    if not settings.is_sqlite:
+        return 0
     ensure_fts_schema()
     blocks = session.exec(
         select(models.ReadingBlock.id, models.ReadingBlock.order_index, models.ReadingBlock.text).where(

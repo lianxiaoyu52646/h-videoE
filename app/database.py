@@ -91,7 +91,19 @@ _READING_HIGHLIGHT_COLUMNS = [("user_id", "INTEGER DEFAULT 1")]
 _READING_NOTE_COLUMNS = [("user_id", "INTEGER DEFAULT 1")]
 _READING_BOOKMARK_COLUMNS = [("user_id", "INTEGER DEFAULT 1")]
 _WORDBOOK_COLUMNS = [("deleted_at", "TEXT")]
-_READING_DOCUMENT_COLUMNS = [("deleted_at", "TEXT")]
+_READING_DOCUMENT_COLUMNS = [
+    ("deleted_at", "TEXT"),
+    ("book_key", "TEXT"),
+    ("edition_id", "INTEGER"),
+]
+_USER_COLUMNS = [
+    ("username", "TEXT"),
+    ("avatar_url", "TEXT"),
+    ("openid", "TEXT"),
+    ("unionid", "TEXT"),
+    ("updated_at", "TEXT"),
+    ("last_login_at", "TEXT"),
+]
 
 
 def _ensure_columns(cur: sqlite3.Cursor, table: str, columns: list[tuple[str, str]]) -> None:
@@ -127,7 +139,102 @@ def _migrate_sqlite_schema() -> None:
         _ensure_columns(cur, "readingbookmark", _READING_BOOKMARK_COLUMNS)
         _ensure_columns(cur, "wordbook", _WORDBOOK_COLUMNS)
         _ensure_columns(cur, "readingdocument", _READING_DOCUMENT_COLUMNS)
+        _ensure_columns(cur, "user", _USER_COLUMNS)
 
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_openid ON user (openid) "
+            "WHERE openid IS NOT NULL AND openid != ''"
+        )
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_user_username ON user (username) "
+            "WHERE username IS NOT NULL AND username != ''"
+        )
+        # Backfill username from email local-part for legacy rows
+        cur.execute(
+            "UPDATE user SET username = lower(substr(email, 1, instr(email, '@') - 1)) "
+            "WHERE (username IS NULL OR username = '') AND email LIKE '%@%' "
+            "AND instr(email, '@') > 1"
+        )
+
+        # Durable wordbook memory tables (per-user)
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wordbook_memory (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                wordbook_id INTEGER NOT NULL,
+                cursor_offset INTEGER DEFAULT 0,
+                last_entry_id INTEGER,
+                known_count INTEGER DEFAULT 0,
+                unknown_count INTEGER DEFAULT 0,
+                total_count INTEGER DEFAULT 0,
+                is_completed INTEGER DEFAULT 0,
+                last_studied_at TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_wordbook_memory_user_book "
+            "ON wordbook_memory (user_id, wordbook_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_wordbook_memory_user ON wordbook_memory (user_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_wordbook_memory_book ON wordbook_memory (wordbook_id)"
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wordbook_memory_word (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                wordbook_id INTEGER NOT NULL,
+                entry_id INTEGER NOT NULL,
+                word TEXT DEFAULT '',
+                status TEXT DEFAULT 'unknown',
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_wordbook_memory_word_user_entry "
+            "ON wordbook_memory_word (user_id, entry_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_wordbook_memory_word_user ON wordbook_memory_word (user_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_wordbook_memory_word_book ON wordbook_memory_word (wordbook_id)"
+        )
+
+        # Migrate legacy wordbookprogress → wordbook_memory (once)
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='wordbookprogress'"
+        )
+        if cur.fetchone():
+            cur.execute(
+                """
+                INSERT OR IGNORE INTO wordbook_memory (
+                    user_id, wordbook_id, cursor_offset, known_count, unknown_count,
+                    total_count, is_completed, last_studied_at, created_at, updated_at
+                )
+                SELECT
+                    user_id,
+                    wordbook_id,
+                    COALESCE(cursor_offset, 0),
+                    COALESCE(learned_count, 0),
+                    COALESCE(unknown_count, 0),
+                    0,
+                    0,
+                    updated_at,
+                    updated_at,
+                    updated_at
+                FROM wordbookprogress
+                """
+            )
         cur.execute(
             "CREATE INDEX IF NOT EXISTS ix_readingblock_doc_order "
             "ON readingblock (document_id, order_index)"
@@ -142,6 +249,16 @@ def _migrate_sqlite_schema() -> None:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS ix_readingdocument_user_created "
             "ON readingdocument (user_id, created_at)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_book_paragraph_edition_zh "
+            "ON book_paragraph (edition_id) "
+            "WHERE zh_text IS NOT NULL AND length(trim(zh_text)) > 0"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_book_paragraph_missing_zh "
+            "ON book_paragraph (edition_id, order_index) "
+            "WHERE zh_text IS NULL OR length(trim(zh_text)) = 0"
         )
 
         for table in ("video", "readingdocument", "readinghighlight", "readingnote", "readingbookmark", "vocabcard"):

@@ -7,12 +7,18 @@ from sqlmodel import Field, Relationship, SQLModel
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    username: Optional[str] = Field(default=None, index=True, unique=True)
     email: str = Field(index=True, unique=True)
     password_hash: str = Field(default="")
     display_name: str = Field(default="")
+    avatar_url: Optional[str] = Field(default=None)
+    openid: Optional[str] = Field(default=None, index=True, unique=True)
+    unionid: Optional[str] = Field(default=None, index=True)
     is_active: bool = Field(default=True)
     is_default: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
 
 
 class ApiToken(SQLModel, table=True):
@@ -111,9 +117,74 @@ class ReadingDocument(SQLModel, table=True):
     source_type: str = Field(default="paste")
     source_url: Optional[str] = None
     source_filename: Optional[str] = None
+    book_key: Optional[str] = Field(default=None, index=True)
+    edition_id: Optional[int] = Field(default=None, foreign_key="book_edition.id", index=True)
     active_job_id: Optional[int] = Field(default=None, foreign_key="job.id")
     deleted_at: Optional[datetime] = Field(default=None, index=True)
     blocks: List["ReadingBlock"] = Relationship(back_populates="document")
+
+
+class BookEdition(SQLModel, table=True):
+    """Global shared book text+translation edition (one per book_key + content hash)."""
+
+    __tablename__ = "book_edition"
+    __table_args__ = (
+        UniqueConstraint("book_key", "content_sha256", name="uq_book_edition_key_sha"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    book_key: str = Field(index=True)
+    content_sha256: str = Field(index=True)
+    title: str = Field(default="")
+    author: str = Field(default="")
+    language: str = Field(default="en")
+    block_count: int = Field(default=0)
+    translated_blocks: int = Field(default=0)
+    translate_status: str = Field(default="pending", index=True)
+    source_url: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BookParagraph(SQLModel, table=True):
+    """Shared EN/ZH paragraph rows for a book edition."""
+
+    __tablename__ = "book_paragraph"
+    __table_args__ = (
+        UniqueConstraint("edition_id", "order_index", name="uq_book_paragraph_edition_order"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    edition_id: int = Field(foreign_key="book_edition.id", index=True)
+    order_index: int = Field(default=0, index=True)
+    en_text: str = Field(sa_column=Column(Text, nullable=False))
+    en_hash: str = Field(default="", index=True)
+    zh_text: Optional[str] = Field(default=None, sa_column=Column(Text))
+    zh_source: Optional[str] = Field(default=None, index=True)
+    translated_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BookTranslateCheckpoint(SQLModel, table=True):
+    """Singleton-ish resume cursor for manual full-library translation runs."""
+
+    __tablename__ = "book_translate_checkpoint"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    status: str = Field(default="idle", index=True)  # idle|running|paused|done
+    current_book_key: Optional[str] = Field(default=None, index=True)
+    current_edition_id: Optional[int] = Field(default=None, index=True)
+    current_order_index: int = Field(default=0)
+    books_total: int = Field(default=0)
+    books_finished: int = Field(default=0)
+    translated_paragraphs: int = Field(default=0)
+    failed_paragraphs: int = Field(default=0)
+    message: str = Field(default="")
+    job_id: Optional[int] = Field(default=None, index=True)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class TranslationCache(SQLModel, table=True):
@@ -247,6 +318,42 @@ class WordBookCatalog(SQLModel, table=True):
     entry_count: int = Field(default=0)
     installed_wordbook_id: Optional[int] = Field(default=None, foreign_key="wordbook.id", index=True)
     installed_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WordBookMemory(SQLModel, table=True):
+    """Per-user persistent memory for one wordbook (progress + resume cursor)."""
+
+    __tablename__ = "wordbook_memory"
+    __table_args__ = (UniqueConstraint("user_id", "wordbook_id", name="uq_wordbook_memory_user_book"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    wordbook_id: int = Field(foreign_key="wordbook.id", index=True)
+    cursor_offset: int = Field(default=0)
+    last_entry_id: Optional[int] = Field(default=None, index=True)
+    known_count: int = Field(default=0)
+    unknown_count: int = Field(default=0)
+    total_count: int = Field(default=0)
+    is_completed: bool = Field(default=False)
+    last_studied_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WordBookMemoryWord(SQLModel, table=True):
+    """Per-user per-entry memory status inside a wordbook."""
+
+    __tablename__ = "wordbook_memory_word"
+    __table_args__ = (UniqueConstraint("user_id", "entry_id", name="uq_wordbook_memory_word_user_entry"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    wordbook_id: int = Field(foreign_key="wordbook.id", index=True)
+    entry_id: int = Field(foreign_key="wordbookentry.id", index=True)
+    word: str = Field(default="", index=True)
+    status: str = Field(default="unknown", index=True)  # known | unknown
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

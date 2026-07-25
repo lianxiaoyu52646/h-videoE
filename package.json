@@ -1,0 +1,16 @@
+{
+  "name": "VideoEnglish",
+  "version": "1.0.0",
+  "description": "英语学习应用",
+  "scripts": {
+    "sync": "npx cap sync",
+    "open:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.5.0",
+    "@capacitor/cli": "^6.5.0"
+  }
+}

@@ -572,8 +572,12 @@ def create_reading(
 
     blocks_text = split_into_blocks(content)
     word_count = len(content.split())
+    bilingual_count = sum(1 for b in blocks_text if (b.get("translation") or "").strip())
+    is_bilingual = bilingual_count > 0 and bilingual_count >= max(1, int(len(blocks_text) * 0.5))
     size_hint = ""
-    if len(content) > 1_000_000:
+    if is_bilingual:
+        size_hint = f"双语小说已导入（{len(blocks_text)} 段），可直接阅读。"
+    elif len(content) > 1_000_000:
         size_hint = f"大型书籍已导入（{len(blocks_text)} 段），打开章节后将按需翻译。"
 
     doc = models.ReadingDocument(
@@ -581,7 +585,9 @@ def create_reading(
         title=title.strip() or "Untitled",
         block_count=len(blocks_text),
         word_count=word_count,
-        translate_status="ready",
+        translate_status="done" if is_bilingual else "ready",
+        translate_progress=100 if is_bilingual else 0,
+        translated_blocks=bilingual_count if is_bilingual else 0,
         status_message=size_hint or "可以开始阅读（打开章节后自动翻译）",
         source_type=source_type,
         source_url=source_url,
@@ -598,6 +604,7 @@ def create_reading(
                 document_id=doc.id,
                 order_index=batch_start + i,
                 text=block["text"],
+                translation=(block.get("translation") or None),
                 section_title=block.get("section_title"),
                 text_hash=text_hash(block["text"]),
             )
@@ -1393,6 +1400,19 @@ def wordbook_to_read(session: Session, wordbook: models.WordBook) -> dict:
     data = wordbook.model_dump()
     data["entry_count"] = entry_count
     data["learned_count"] = learned_count
+    try:
+        from app.services import wordbook_study
+
+        snap = wordbook_study.progress_snapshot(session, wordbook.id, total=entry_count)
+        data["study_seen"] = int(
+            min(entry_count, max(snap.get("cursor", 0), snap.get("learned", 0) + snap.get("unknown", 0)))
+        )
+        data["study_percent"] = float(snap.get("percent") or 0)
+        data["study_label"] = snap.get("label") or f"0 / {entry_count}"
+    except Exception:
+        data["study_seen"] = 0
+        data["study_percent"] = 0.0
+        data["study_label"] = f"0 / {entry_count}"
     return data
 
 
@@ -1537,8 +1557,48 @@ def add_wordbook_entries(
     wordbook_id: int,
     entries: Iterable[dict],
 ) -> int:
+    existing_count = session.exec(
+        select(func.count(models.WordBookEntry.id)).where(
+            models.WordBookEntry.wordbook_id == wordbook_id
+        )
+    ).one()
+    entry_list = list(entries)
+    # Fast path: empty book → batch insert (used by bundled catalog preinstall).
+    if int(existing_count or 0) == 0:
+        batch: list[models.WordBookEntry] = []
+        seen: set[str] = set()
+        count = 0
+        for entry in entry_list:
+            word = _normalize_word(entry.get("word", ""))
+            if not word or word in seen:
+                continue
+            seen.add(word)
+            batch.append(
+                models.WordBookEntry(
+                    wordbook_id=wordbook_id,
+                    word=word,
+                    lemma=entry.get("lemma") or word,
+                    definition=entry.get("definition", ""),
+                    translation=entry.get("translation"),
+                    pronunciation=entry.get("pronunciation"),
+                    part_of_speech=entry.get("part_of_speech"),
+                    example=entry.get("example"),
+                    tags=entry.get("tags") or [],
+                    level=entry.get("level"),
+                )
+            )
+            count += 1
+            if len(batch) >= 800:
+                session.add_all(batch)
+                session.commit()
+                batch = []
+        if batch:
+            session.add_all(batch)
+            session.commit()
+        return count
+
     count = 0
-    for entry in entries:
+    for entry in entry_list:
         word = _normalize_word(entry.get("word", ""))
         if not word:
             continue

@@ -1,0 +1,17 @@
+{
+  "name": "WordPop 单词泡泡",
+  "short_name": "WordPop",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#fff7fb",
+  "theme_color": "#ff6fae",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/static/m/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

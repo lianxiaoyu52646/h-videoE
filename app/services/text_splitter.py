@@ -174,17 +174,33 @@ def _split_section(text: str, inherited_title: str | None, max_chars: int) -> li
 
             continue
 
-        if len(part) <= max_chars:
-
-            blocks.append({"text": part, "section_title": current_title})
-
+        text_part, translation = _split_bilingual_line(part)
+        if len(text_part) <= max_chars:
+            block = {"text": text_part, "section_title": current_title}
+            if translation:
+                block["translation"] = translation
+            blocks.append(block)
             continue
 
-        for chunk in _split_long_paragraph(part, max_chars):
-
-            blocks.append({"text": chunk, "section_title": current_title})
+        for chunk in _split_long_paragraph(text_part, max_chars):
+            block = {"text": chunk, "section_title": current_title}
+            if translation:
+                block["translation"] = translation
+            blocks.append(block)
 
     return blocks
+
+
+def _split_bilingual_line(part: str) -> tuple[str, str | None]:
+    """Support bilingual import lines: English|||中文"""
+    if "|||" not in part:
+        return part, None
+    en, zh = part.split("|||", 1)
+    en = en.strip()
+    zh = zh.strip()
+    if not en:
+        return part, None
+    return en, zh or None
 
 
 

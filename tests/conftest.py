@@ -19,6 +19,12 @@ def _reset_reading_cache():
 
 
 @pytest.fixture(autouse=True)
+def _disable_wordbook_auto_install(monkeypatch):
+    """Keep unit tests fast; catalog preinstall is covered by an explicit test."""
+    monkeypatch.setattr("app.config.settings.auto_install_wordbooks", False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_translating():
     import app.services.reading_processor as rp
     rp._running_tasks.clear()

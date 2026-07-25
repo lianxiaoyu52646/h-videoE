@@ -5,7 +5,7 @@ from sqlmodel import Session
 
 from app import crud, schemas
 from app import database
-from app.services import wordbook_catalog, wordbook_import
+from app.services import wordbook_catalog, wordbook_import, wordbook_study
 from app.services.wordbook_entry_format import normalize_catalog_entry
 
 router = APIRouter(prefix="/api/wordbooks", tags=["wordbooks"])
@@ -23,6 +23,14 @@ def list_wordbooks(
     custom: bool = False,
     session: Session = Depends(database.session_dependency),
 ):
+    if not custom:
+        try:
+            from app.config import settings
+
+            if settings.auto_install_wordbooks:
+                wordbook_catalog.ensure_all_catalog_installed(session)
+        except Exception:
+            pass
     items = crud.list_wordbooks(session, custom_only=custom)
     return [crud.wordbook_to_read(session, item) for item in items]
 
@@ -77,6 +85,64 @@ def get_wordbook(wordbook_id: int, session: Session = Depends(database.session_d
     if not item:
         raise HTTPException(status_code=404, detail="词书不存在")
     return crud.wordbook_to_read(session, item)
+
+
+@router.get("/{wordbook_id}/study-feed")
+def study_feed(
+    wordbook_id: int,
+    limit: int = 10,
+    offset: int | None = None,
+    session: Session = Depends(database.session_dependency),
+):
+    """Study page feed. Omit offset to resume from saved cursor; pass offset to browse any page."""
+    try:
+        return wordbook_study.study_feed(
+            session, wordbook_id, limit=limit, offset=offset
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="词书不存在")
+
+
+@router.post("/{wordbook_id}/study-cursor")
+def study_cursor(
+    wordbook_id: int,
+    body: schemas.WordBookStudyCursor,
+    session: Session = Depends(database.session_dependency),
+):
+    """Save resume position (absolute entry offset)."""
+    try:
+        return wordbook_study.save_cursor(session, wordbook_id, body.cursor)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="词书不存在")
+
+
+@router.post("/{wordbook_id}/study-star")
+def study_star(
+    wordbook_id: int,
+    body: schemas.WordBookStudyStar,
+    session: Session = Depends(database.session_dependency),
+):
+    try:
+        return wordbook_study.star_entry(
+            session, wordbook_id, body.entry_id, starred=body.starred
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="词条不存在")
+
+
+@router.post("/{wordbook_id}/study-commit")
+def study_commit(
+    wordbook_id: int,
+    body: schemas.WordBookStudyCommit,
+    session: Session = Depends(database.session_dependency),
+):
+    """Finish a batch: starred → 生词本; others count as learned; advance cursor."""
+    try:
+        return wordbook_study.commit_batch(
+            session, wordbook_id, body.entry_ids, body.starred_ids
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="词书不存在")
 
 
 @router.get("/{wordbook_id}/entries", response_model=schemas.WordBookEntriesPage)

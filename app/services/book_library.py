@@ -15,7 +15,11 @@ from app import crud, models, security
 from app.config import settings
 
 
-CATALOG_PATH = Path(__file__).resolve().parent.parent / "assets" / "curated" / "book_catalog.json"
+CATALOG_PATHS = [
+    Path(__file__).resolve().parent.parent / "assets" / "curated" / "gutenberg_100.json",
+    Path(__file__).resolve().parent.parent / "assets" / "curated" / "book_catalog.json",
+]
+BUNDLED_BOOKS_DIR = Path(__file__).resolve().parent.parent / "assets" / "books" / "gutenberg"
 GUTENBERG_START_RE = re.compile(
     r"\*\*\*\s*START OF (?:THIS|THE) PROJECT GUTENBERG EBOOK.*?\*\*\*",
     re.IGNORECASE | re.DOTALL,
@@ -44,9 +48,47 @@ def _current_user_id() -> int:
 
 
 def _load_manifest() -> list[dict]:
-    if not CATALOG_PATH.exists():
-        return []
-    return json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    for path in CATALOG_PATHS:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                return data
+    return []
+
+
+def _bundled_asset_path(row: models.LibraryBook, item: dict | None = None) -> Path | None:
+    """Prefer pre-shipped Gutenberg txt under app/assets/books/gutenberg/."""
+    asset = None
+    if item:
+        asset = item.get("asset_file")
+        gid = item.get("gutenberg_id")
+    else:
+        asset = None
+        gid = None
+        if row.key.startswith("pg_"):
+            try:
+                gid = int(row.key.split("_", 1)[1])
+            except Exception:
+                gid = None
+    candidates: list[Path] = []
+    if asset:
+        candidates.append(BUNDLED_BOOKS_DIR / str(asset))
+    if gid:
+        candidates.append(BUNDLED_BOOKS_DIR / f"{gid}.txt")
+    # legacy android-style names
+    if row.key:
+        candidates.append(BUNDLED_BOOKS_DIR / f"{row.key}.txt")
+    for path in candidates:
+        if path.exists() and path.stat().st_size > 500:
+            return path
+    return None
+
+
+def _read_bundled_or_cached_text(row: models.LibraryBook, item: dict | None = None) -> str | None:
+    bundled = _bundled_asset_path(row, item)
+    if bundled:
+        return bundled.read_text(encoding="utf-8", errors="replace")
+    return _read_cached_text(row)
 
 
 def _book_cache_dir() -> Path:
@@ -139,11 +181,19 @@ def ensure_catalog(session: Session) -> list[models.LibraryBook]:
             session.add(row)
     if changed:
         session.commit()
-    return session.exec(
+    # Only surface books from the active curated manifest (hide legacy catalog rows).
+    keys = [item["key"] for item in manifest if item.get("key")]
+    if not keys:
+        return []
+    rows = session.exec(
         select(models.LibraryBook)
-        .where(models.LibraryBook.user_id == user_id)
+        .where(
+            models.LibraryBook.user_id == user_id,
+            models.LibraryBook.key.in_(keys),
+        )
         .order_by(models.LibraryBook.title.asc())
     ).all()
+    return rows
 
 
 def list_books(session: Session) -> list[models.LibraryBook]:
@@ -152,9 +202,16 @@ def list_books(session: Session) -> list[models.LibraryBook]:
         return ensure_catalog(session)
     except OperationalError:
         session.rollback()
+        manifest = _load_manifest()
+        keys = [item["key"] for item in manifest if item.get("key")]
+        if not keys:
+            raise
         rows = session.exec(
             select(models.LibraryBook)
-            .where(models.LibraryBook.user_id == user_id)
+            .where(
+                models.LibraryBook.user_id == user_id,
+                models.LibraryBook.key.in_(keys),
+            )
             .order_by(models.LibraryBook.title.asc())
         ).all()
         if rows:
@@ -205,13 +262,57 @@ def _import_book_locked(
     if row.reading_document_id:
         existing = crud.get_reading(session, row.reading_document_id, user_id=user_id)
         if existing:
+            if not existing.edition_id:
+                text = _read_bundled_or_cached_text(
+                    row,
+                    next((m for m in _load_manifest() if m.get("key") == book_key), None),
+                )
+                if text:
+                    text = _normalize_book_text(text)
+                    sha = row.cache_sha256 or _sha256_text(text)
+                    try:
+                        from app.services import book_shared
+
+                        book_shared.attach_edition_to_document(
+                            session,
+                            existing,
+                            book_key=row.key,
+                            content_sha256=sha,
+                            author=row.author or "",
+                        )
+                        session.refresh(existing)
+                    except Exception:
+                        pass
+            elif (existing.block_count or 0) > 0:
+                try:
+                    from app.services import book_shared
+
+                    book_shared.hydrate_document_range(
+                        session,
+                        existing.id,
+                        0,
+                        min(79, (existing.block_count or 1) - 1),
+                    )
+                except Exception:
+                    pass
             return row, existing, False
         row.reading_document_id = None
         session.add(row)
         session.commit()
         session.refresh(row)
 
-    text = _read_cached_text(row)
+    text = None
+    manifest_item = next((m for m in _load_manifest() if m.get("key") == book_key), None)
+    text = _read_bundled_or_cached_text(row, manifest_item)
+    if text:
+        text = _normalize_book_text(text)
+        bundled = _bundled_asset_path(row, manifest_item)
+        if bundled and not row.cache_path:
+            row.cache_path = str(bundled)
+            row.cache_sha256 = _sha256_text(text)
+            row.cache_bytes = bundled.stat().st_size
+            row.cache_status = "bundled"
+            row.last_synced_at = datetime.utcnow()
     if not text:
         raw_text = _download_book_text(row)
         text = _normalize_book_text(raw_text)
@@ -226,22 +327,38 @@ def _import_book_locked(
         row.last_error = None
         row.last_synced_at = datetime.utcnow()
     else:
-        cache_path = Path(row.cache_path)
-        row.cache_status = "cached"
-        row.cache_bytes = cache_path.stat().st_size if cache_path.exists() else len(text.encode("utf-8"))
-        row.cache_sha256 = row.cache_sha256 or _sha256_text(text)
-        row.last_error = None
-        row.last_synced_at = row.last_synced_at or datetime.utcnow()
+        if row.cache_path:
+            cache_path = Path(row.cache_path)
+            row.cache_status = row.cache_status or "cached"
+            row.cache_bytes = cache_path.stat().st_size if cache_path.exists() else len(text.encode("utf-8"))
+            row.cache_sha256 = row.cache_sha256 or _sha256_text(text)
+            row.last_error = None
+            row.last_synced_at = row.last_synced_at or datetime.utcnow()
 
     doc = crud.create_reading(
         session,
         row.title,
         text,
-        source_type="github-book",
+        source_type="gutenberg-book" if (row.provider == "gutenberg" or row.key.startswith("pg_")) else "github-book",
         source_url=row.repo_url or row.raw_url,
         source_filename=f"{row.key}.txt",
         user_id=user_id,
     )
+    content_sha = row.cache_sha256 or _sha256_text(text)
+    try:
+        from app.services import book_shared
+
+        book_shared.attach_edition_to_document(
+            session,
+            doc,
+            book_key=row.key,
+            content_sha256=content_sha,
+            author=row.author or "",
+        )
+        session.refresh(doc)
+    except Exception:
+        logger = __import__("logging").getLogger(__name__)
+        logger.exception("attach shared book edition failed for %s", row.key)
     row.reading_document_id = doc.id
     row.imported_at = datetime.utcnow()
     row.updated_at = datetime.utcnow()

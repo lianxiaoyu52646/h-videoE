@@ -147,7 +147,7 @@ function renderVocab(items) {
     div.innerHTML = `
       <div class="word-header">
         <span class="word-title">${escapeHtml(card.word)}</span>
-        <button class="btn-danger" data-id="${card.id}">删除</button>
+        <button class="btn-danger" data-id="${card.id}">已学会</button>
       </div>
       <div class="word-phonetic">${escapeHtml(card.pronunciation || '')}</div>
       <div class="word-def">${escapeHtml(card.definition || '')}</div>
@@ -229,10 +229,8 @@ function renderReview() {
       <div class="word-def-big">${escapeHtml(card.definition || '')}</div>
       ${card.translation ? `<div class="word-def-big" style="color:var(--accent)">${escapeHtml(card.translation)}</div>` : ''}
       <div class="review-buttons">
-        <button class="review-btn again" data-rating="1">忘记</button>
-        <button class="review-btn hard" data-rating="2">困难</button>
-        <button class="review-btn good" data-rating="3">良好</button>
-        <button class="review-btn easy" data-rating="4">简单</button>
+        <button class="review-btn good" data-rating="4">会</button>
+        <button class="review-btn again" data-rating="1">不会</button>
       </div>
     </div>
   `;

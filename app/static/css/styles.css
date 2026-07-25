@@ -2995,7 +2995,7 @@ body.side-open .reader-main {
 }
 .wordbook-entry-title {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 .wordbook-entry-wordline {
   display: flex;
@@ -3004,25 +3004,49 @@ body.side-open .reader-main {
   flex-wrap: wrap;
 }
 .wordbook-entry-word {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 800;
+  color: var(--text);
 }
-.wordbook-entry-pos {
+.wordbook-entry-phonetic {
+  font-size: 13px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wordbook-entry-phonetic span.us {
+  color: #60a5fa;
+}
+.wordbook-entry-phonetic span.uk {
+  color: #a78bfa;
 }
 .wordbook-entry-badges {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
-.wordbook-entry-phonetic {
-  color: #7dd3fc;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.wordbook-speak-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(148, 163, 184, 0.06);
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.wordbook-speak-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--primary);
+  border-color: rgba(56, 189, 248, 0.25);
 }
 .wordbook-entry-translation {
   margin-top: 8px;
@@ -3727,4 +3751,123 @@ body.side-open .reader-main {
   justify-content: flex-end;
   gap: 10px;
   padding: 14px 22px 20px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --radius: 14px;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  }
+  body {
+    font-size: 14px;
+  }
+  .nav-bar {
+    padding: 8px 12px;
+    height: auto;
+  }
+  .nav-bar-inner {
+    grid-template-columns: auto 1fr;
+  }
+  .nav-bar-title {
+    font-size: 16px;
+  }
+  .nav-bar-actions {
+    gap: 8px;
+  }
+  .nav-bar-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+  .page-content {
+    padding: 12px;
+  }
+  .card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+  .btn-primary, .btn-secondary {
+    padding: 10px 16px;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+  .word-popover {
+    width: calc(100% - 24px);
+    max-width: 360px;
+    left: 12px !important;
+    right: 12px !important;
+    margin-left: 0 !important;
+  }
+  .word-popover-word {
+    font-size: 18px;
+  }
+  .word-popover-phonetic {
+    font-size: 12px;
+    gap: 10px;
+  }
+  .selection-toolbar {
+    padding: 6px 10px;
+    gap: 8px;
+    border-radius: 12px;
+  }
+  .selection-toolbar button {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+  .wordbook-entry-card {
+    padding: 12px;
+  }
+  .wordbook-entry-word {
+    font-size: 1rem;
+  }
+  .wordbook-entry-phonetic {
+    font-size: 12px;
+  }
+  .wordbook-speak-btn,
+  .wordbook-save-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+  .reading-block {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .reading-text-en {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .reading-text-zh {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .reading-block-actions {
+    gap: 6px;
+  }
+  .reading-block-actions button {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-content {
+    padding: 8px;
+  }
+  .card {
+    padding: 12px;
+  }
+  .word-popover {
+    padding: 14px;
+  }
+  .word-popover-word {
+    font-size: 16px;
+  }
+  .reading-text-en {
+    font-size: 14px;
+  }
+  .reading-text-zh {
+    font-size: 13px;
+  }
 }

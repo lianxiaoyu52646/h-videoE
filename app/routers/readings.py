@@ -57,13 +57,23 @@ def _create_translate_job(
     force: bool = False,
     chapter_index: int | None = None,
     prefetch_next: bool = False,
+    start_block: int | None = None,
+    end_block: int | None = None,
+    prefetch_end: int | None = None,
 ):
     with Session(database.engine) as session:
         doc = crud.get_reading(session, doc_id)
         if not doc:
             return None
         payload: dict = {"doc_id": doc_id, "force": force, "mode": "full"}
-        if chapter_index is not None:
+        if start_block is not None and end_block is not None:
+            payload.update({
+                "mode": "window",
+                "start_block": start_block,
+                "end_block": end_block,
+                "prefetch_end": prefetch_end,
+            })
+        elif chapter_index is not None:
             payload.update({
                 "mode": "chapter",
                 "chapter_index": chapter_index,
@@ -109,6 +119,30 @@ def _start_chapter_translate(
         doc_id,
         chapter_index,
         prefetch_next=prefetch_next,
+        job_id=job_id,
+    )
+
+
+def _start_window_translate(
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+    *,
+    prefetch_end: int | None = None,
+):
+    job_id = _create_translate_job(
+        doc_id,
+        start_block=start_block,
+        end_block=end_block,
+        prefetch_end=prefetch_end,
+    )
+    if not job_id or not settings.inline_worker:
+        return
+    reading_processor.start_window_translation(
+        doc_id,
+        start_block,
+        end_block,
+        prefetch_end=prefetch_end,
         job_id=job_id,
     )
 
@@ -200,6 +234,8 @@ async def create_reading(
     request: schemas.ReadingCreate,
     session: Session = Depends(database.session_dependency),
 ):
+    if not settings.desktop_mode:
+        raise HTTPException(status_code=403, detail="请从经典书架打开书籍，已关闭自行导入")
     content = (request.content or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="内容不能为空")
@@ -225,6 +261,8 @@ async def upload_reading(
     title: str = Form(""),
     session: Session = Depends(database.session_dependency),
 ):
+    if not settings.desktop_mode:
+        raise HTTPException(status_code=403, detail="请从经典书架打开书籍，已关闭自行导入")
     name = file.filename or "document.txt"
     raw = await file.read()
     if len(raw) > MAX_UPLOAD_BYTES:
@@ -298,6 +336,25 @@ def get_chapter_blocks(
     )
     if not chapter:
         raise HTTPException(status_code=404, detail="章节不存在")
+    try:
+        from app.services import book_shared
+
+        book_shared.hydrate_document_range(
+            session,
+            doc_id,
+            int(chapter.start_block or 0),
+            int(chapter.end_block or 0),
+        )
+        # Re-fetch page so hydrated translations are visible
+        chapter, items, total = crud.get_reading_chapter_blocks_page(
+            session,
+            doc_id,
+            chapter_index,
+            offset=offset,
+            limit=limit,
+        )
+    except Exception:
+        pass
     return schemas.ReadingChapterBlocksPage(
         chapter=schemas.ReadingChapterRead.model_validate(chapter),
         items=items,
@@ -371,9 +428,25 @@ def get_blocks(
     if not reading_cache.get_doc(doc_id, session):
         raise HTTPException(status_code=404, detail="文档不存在")
     if offset is None and limit is None:
+        try:
+            from app.services import book_shared
+
+            doc = crud.get_reading(session, doc_id)
+            if doc and (doc.block_count or 0) > 0:
+                book_shared.hydrate_document_range(
+                    session, doc_id, 0, (doc.block_count or 1) - 1
+                )
+        except Exception:
+            pass
         return reading_cache.get_all_blocks(session, doc_id)
     off = offset or 0
     lim = limit or 50
+    try:
+        from app.services import book_shared
+
+        book_shared.hydrate_document_range(session, doc_id, off, off + lim - 1)
+    except Exception:
+        pass
     total, items = reading_cache.get_blocks_page(session, doc_id, off, lim)
     return schemas.ReadingBlocksPage(
         items=items,
@@ -647,6 +720,41 @@ async def translate_chapter(
         raise HTTPException(status_code=404, detail="章节不存在")
     _start_chapter_translate(doc_id, chapter_index, prefetch_next=prefetch_next)
     return {"ok": True, "chapter_index": chapter_index}
+
+
+@router.post("/{doc_id}/translate/window")
+async def translate_window(
+    doc_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(80, ge=1, le=200),
+    prefetch: bool = Query(True),
+    session: Session = Depends(database.session_dependency),
+):
+    """懒翻译当前阅读窗口；prefetch 时顺带预翻下一批。"""
+    doc = crud.get_reading(session, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    total = int(doc.block_count or 0)
+    if total <= 0:
+        return {"ok": True, "queued": False, "start_block": 0, "end_block": -1}
+    start_block = min(offset, total - 1)
+    end_block = min(offset + limit - 1, total - 1)
+    prefetch_end = None
+    if prefetch and end_block < total - 1:
+        prefetch_end = min(end_block + limit, total - 1)
+    _start_window_translate(
+        doc_id,
+        start_block,
+        end_block,
+        prefetch_end=prefetch_end,
+    )
+    return {
+        "ok": True,
+        "queued": True,
+        "start_block": start_block,
+        "end_block": end_block,
+        "prefetch_end": prefetch_end,
+    }
 
 
 @router.post("/{doc_id}/translate")

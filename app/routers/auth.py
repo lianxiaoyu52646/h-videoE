@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session, select
 
@@ -9,10 +12,30 @@ from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+_USERNAME_RE = re.compile(r"^[\w\u4e00-\u9fff]{2,32}$")
+
 
 def _ensure_auth_feature_enabled() -> None:
     if settings.desktop_mode:
         raise HTTPException(status_code=404, detail="桌面模式不提供网页登录或扩展令牌")
+
+
+def _normalize_username(raw: str) -> str:
+    username = (raw or "").strip()
+    if not _USERNAME_RE.match(username):
+        raise HTTPException(status_code=400, detail="用户名需 2–32 位，支持中英文、数字、下划线")
+    return username
+
+
+def _issue_session(response: Response, session: Session, user: models.User) -> schemas.AuthResponse:
+    user.last_login_at = datetime.utcnow()
+    user.updated_at = datetime.utcnow()
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    token = security.issue_api_token(session, user, label="web-session", expires_in_days=30)
+    security.set_session_cookie(response, token)
+    return schemas.AuthResponse(user=user, token=token)
 
 
 @router.post("/register", response_model=schemas.AuthResponse)
@@ -21,28 +44,41 @@ def register(
     response: Response,
     session: Session = Depends(database.session_dependency),
 ):
+    """Username + password register; user row is committed to the database."""
     _ensure_auth_feature_enabled()
-    email = body.email.strip().lower()
-    if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="请输入有效邮箱")
-    if len(body.password or "") < 6:
+    username = _normalize_username(body.username)
+    password = body.password or ""
+    if len(password) < 6:
         raise HTTPException(status_code=400, detail="密码至少 6 位")
-    exists = session.exec(select(models.User).where(models.User.email == email)).first()
+
+    exists = session.exec(select(models.User).where(models.User.username == username)).first()
     if exists:
-        raise HTTPException(status_code=409, detail="该邮箱已注册")
+        raise HTTPException(status_code=409, detail="该用户名已被占用")
+
+    email = f"{username.lower()}@users.local"
+    if session.exec(select(models.User).where(models.User.email == email)).first():
+        raise HTTPException(status_code=409, detail="该用户名已被占用")
 
     user = models.User(
+        username=username,
         email=email,
-        password_hash=security.hash_password(body.password),
-        display_name=(body.display_name or email.split("@", 1)[0]).strip(),
+        password_hash=security.hash_password(password),
+        display_name=username,
     )
     session.add(user)
     session.commit()
     session.refresh(user)
+    if not user.id:
+        raise HTTPException(status_code=500, detail="注册失败，请重试")
 
-    token = security.issue_api_token(session, user, label="web-session", expires_in_days=30)
-    security.set_session_cookie(response, token)
-    return schemas.AuthResponse(user=user, token=token)
+    try:
+        from app.services import wordbook_catalog
+
+        if settings.auto_install_wordbooks:
+            wordbook_catalog.ensure_all_catalog_installed(session, user_id=user.id)
+    except Exception:
+        pass
+    return _issue_session(response, session, user)
 
 
 @router.post("/login", response_model=schemas.AuthResponse)
@@ -51,14 +87,16 @@ def login(
     response: Response,
     session: Session = Depends(database.session_dependency),
 ):
+    """Validate username + password against hashed credentials in DB."""
     _ensure_auth_feature_enabled()
-    user = security.authenticate_password(session, body.email, body.password)
+    username = (body.username or "").strip()
+    password = body.password or ""
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请输入用户名和密码")
+    user = security.authenticate_password(session, username, password)
     if not user:
-        raise HTTPException(status_code=401, detail="邮箱或密码错误")
-
-    token = security.issue_api_token(session, user, label="web-session", expires_in_days=30)
-    security.set_session_cookie(response, token)
-    return schemas.AuthResponse(user=user, token=token)
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    return _issue_session(response, session, user)
 
 
 @router.post("/logout")

@@ -7,6 +7,12 @@ from app.services import dictionary, translator
 router = APIRouter(tags=["vocabulary"])
 
 
+@router.get("/api/word-lookup/{word}", response_model=schemas.WordRead)
+def lookup_word_for_reader(word: str, session: Session = Depends(database.session_dependency)):
+    """Click-to-translate: local ECDICT first, then Youdao if missing."""
+    return dictionary.lookup_word_click(word, session=session)
+
+
 @router.get("/api/word/{word}", response_model=schemas.WordRead)
 def lookup_word(word: str, session: Session = Depends(database.session_dependency)):
     return dictionary.lookup_word_fast(word, session=session)

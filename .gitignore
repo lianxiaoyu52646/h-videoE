@@ -1,9 +1,25 @@
 __pycache__/
 *.pyc
 db.sqlite3
+db.sqlite3-shm
+db.sqlite3-wal
 .env
 desktop/tauri/node_modules/
 desktop/tauri/src-tauri/target/
 desktop/dist/
 build/
 dist/
+dictionary.db
+app/assets/dictionaries/dictionary.db
+android/.gradle/
+android/.idea/
+android/local.properties
+android/app/build/
+android/.cxx/
+node_modules/
+
+app/assets/books/gutenberg/
+
+# Large local/mobile assets (generate or copy locally)
+android/app/src/main/assets/wordbooks/
+android/app/src/main/assets/books/

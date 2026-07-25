@@ -87,22 +87,38 @@ def authenticate_token(session: Session, token: str) -> Optional[models.User]:
         return None
     if row.expires_at is not None and row.expires_at <= now:
         return None
-    user = session.get(models.User, row.user_id)
+    user_id = row.user_id
+    user = session.get(models.User, user_id)
     if not user or not user.is_active:
         return None
     row.last_used_at = now
     session.add(row)
     session.commit()
+    # Re-load + detach so caller can safely use attrs after session closes.
+    user = session.get(models.User, user_id)
+    if not user:
+        return None
+    session.refresh(user)
+    session.expunge(user)
     return user
 
 
-def authenticate_password(session: Session, email: str, password: str) -> Optional[models.User]:
+def authenticate_password(session: Session, username: str, password: str) -> Optional[models.User]:
+    """Authenticate by username (preferred) or legacy email."""
+    identity = (username or "").strip()
+    if not identity:
+        return None
     user = session.exec(
-        select(models.User).where(models.User.email == email.strip().lower())
+        select(models.User).where(models.User.username == identity)
     ).first()
+    if not user:
+        # Legacy: email login still accepted
+        user = session.exec(
+            select(models.User).where(models.User.email == identity.lower())
+        ).first()
     if not user or not user.is_active:
         return None
-    if not verify_password(password, user.password_hash):
+    if not user.password_hash or not verify_password(password, user.password_hash):
         return None
     return user
 
@@ -126,6 +142,7 @@ def ensure_default_user(session: Session) -> models.User:
         return user
 
     user = models.User(
+        username="local",
         email=settings.default_user_email,
         password_hash=hash_password(secrets.token_urlsafe(24)),
         display_name=settings.default_user_name,
@@ -164,11 +181,12 @@ def set_session_cookie(response: Response, token: str) -> None:
         max_age=settings.session_days * 24 * 60 * 60,
         httponly=True,
         samesite="lax",
+        path="/",
     )
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(settings.auth_cookie_name)
+    response.delete_cookie(settings.auth_cookie_name, path="/")
 
 
 def is_api_request_path(path: str) -> bool:
@@ -176,10 +194,16 @@ def is_api_request_path(path: str) -> bool:
 
 
 def is_public_api_path(path: str) -> bool:
-    if path in {"/api/health", "/api/app-shell", "/api/auth/login", "/api/auth/register"}:
+    if path in {
+        "/api/health",
+        "/api/app-shell",
+        "/api/auth/login",
+        "/api/auth/register",
+    }:
+        return True
+    if path.startswith("/api/pk/ws/"):
         return True
     return False
-
 
 def read_bearer_token(request: Request) -> str | None:
     auth = request.headers.get("Authorization", "")
@@ -199,7 +223,10 @@ def resolve_request_user(request: Request) -> Optional[models.User]:
             if user:
                 return user
         if settings.local_auto_user:
-            return ensure_default_user(session)
+            user = ensure_default_user(session)
+            session.refresh(user)
+            session.expunge(user)
+            return user
     return None
 
 

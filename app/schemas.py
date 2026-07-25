@@ -8,22 +8,24 @@ from pydantic import BaseModel, Field, field_validator
 
 class UserRead(BaseModel):
     id: int
-    email: str
-    display_name: str
-    is_default: bool
+    username: Optional[str] = None
+    email: str = ""
+    display_name: str = ""
+    avatar_url: Optional[str] = None
+    is_default: bool = False
     created_at: datetime
+    last_login_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
 
 class RegisterRequest(BaseModel):
-    email: str
+    username: str
     password: str
-    display_name: str = ""
 
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -34,6 +36,40 @@ class TokenCreateRequest(BaseModel):
 class AuthResponse(BaseModel):
     user: UserRead
     token: Optional[str] = None
+
+
+class WordBookStudyProgress(BaseModel):
+    total: int = 0
+    learned: int = 0
+    unknown: int = 0
+    cursor: int = 0
+    percent: float = 0
+    label: str = "0 / 0"
+
+
+class WordBookStudyFeed(BaseModel):
+    wordbook_id: int
+    name: str
+    items: list[dict]
+    progress: WordBookStudyProgress
+    has_more: bool = True
+    has_more_before: bool = False
+    has_more_after: bool = True
+    offset: int = 0
+
+
+class WordBookStudyCommit(BaseModel):
+    entry_ids: list[int] = Field(default_factory=list)
+    starred_ids: list[int] = Field(default_factory=list)
+
+
+class WordBookStudyCursor(BaseModel):
+    cursor: int = 0
+
+
+class WordBookStudyStar(BaseModel):
+    entry_id: int
+    starred: bool = True
 
 
 class VideoCreate(BaseModel):
@@ -99,6 +135,8 @@ class AppShellRead(BaseModel):
     supports_extension: bool
     profile_name: str
     desktop_base_url: str
+    mobile_home: bool = False
+    features: list[str] = []
 
 
 class WordRead(BaseModel):
@@ -421,6 +459,9 @@ class WordBookRead(BaseModel):
     updated_at: datetime
     entry_count: int = 0
     learned_count: int = 0
+    study_seen: int = 0
+    study_percent: float = 0.0
+    study_label: str = ""
 
     model_config = {"from_attributes": True}
 

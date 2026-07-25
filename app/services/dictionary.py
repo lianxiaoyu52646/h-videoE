@@ -1,7 +1,7 @@
 """
 词典查询服务。
 
-- 快查：本地词典包 + 词书 + 生词缓存，优先毫秒级返回
+- 快查：本地 JSON 词包 + ECDICT SQLite + 词书 + 生词缓存，优先毫秒级返回
 - 补全：有道中文释义 + dictionaryapi.dev 英文释义
 """
 from datetime import datetime
@@ -345,27 +345,31 @@ def lookup_word_fast(word: str, session: Session | None = None) -> dict:
     return _run_with_session(session, _lookup)
 
 
-def lookup_word_enrich(word: str, session: Session | None = None) -> dict:
+def lookup_word_click(word: str, session: Session | None = None) -> dict:
+    """Reader tap: ECDICT/local first; if no Chinese sense, fall back to Youdao and cache."""
     normalized = normalize_word(word)
     if not normalized:
         return _empty_lookup("")
 
     def _lookup(db: Session) -> dict:
         fast = lookup_word_fast(normalized, session=db)
-        needs_online = _needs_enrichment(fast)
-
-        if not needs_online:
+        has_zh = bool((fast.get("translation") or "").strip() or (fast.get("youdao_translation") or "").strip())
+        if has_zh:
             fast["pending_enrichment"] = False
             return fast
 
-        online = _lookup_online_bundle(normalized)
-        if not online:
+        youdao_tr = youdao_lookup_word(normalized)
+        if not youdao_tr:
             fast["pending_enrichment"] = False
             return fast
 
-        merged = _merge_payload(fast, online)
-        _save_cache(db, merged)
-        return merged
+        fast["translation"] = youdao_tr
+        fast["youdao_translation"] = youdao_tr
+        if fast.get("lookup_source") in (None, "", "miss"):
+            fast["lookup_source"] = "youdao"
+        fast["pending_enrichment"] = False
+        _save_cache(db, fast, source_name="online-cache")
+        return fast
 
     return _run_with_session(session, _lookup)
 

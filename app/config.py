@@ -66,6 +66,11 @@ def _default_home_dir() -> Path:
 def _default_database_url() -> str:
     configured = (os.getenv("DATABASE_URL") or "").strip()
     if configured:
+        # Render / Heroku style postgres:// → SQLAlchemy + psycopg
+        if configured.startswith("postgres://"):
+            configured = "postgresql+psycopg://" + configured[len("postgres://") :]
+        elif configured.startswith("postgresql://") and "+psycopg" not in configured:
+            configured = "postgresql+psycopg://" + configured[len("postgresql://") :]
         return configured
     if _default_app_mode() == "desktop":
         db_path = _default_home_dir() / "data" / "videoenglish.sqlite3"
@@ -75,11 +80,21 @@ def _default_database_url() -> str:
 
 @dataclass(slots=True)
 class Settings:
-    app_name: str = "Video English Smart Learning"
+    app_name: str = field(
+        default_factory=lambda: os.getenv("APP_NAME", "WordPop 单词泡泡")
+    )
     app_mode: str = field(default_factory=_default_app_mode)
     database_url: str = field(default_factory=_default_database_url)
     secret_key: str = field(default_factory=lambda: os.getenv("SECRET_KEY", "dev-secret-change-me"))
-    local_auto_user: bool = field(default_factory=lambda: _parse_bool(os.getenv("LOCAL_AUTO_USER"), True))
+    local_auto_user: bool = field(
+        default_factory=lambda: _parse_bool(
+            os.getenv("LOCAL_AUTO_USER"),
+            _default_app_mode() == "desktop",
+        )
+    )
+    auto_install_wordbooks: bool = field(
+        default_factory=lambda: _parse_bool(os.getenv("AUTO_INSTALL_WORDBOOKS"), True)
+    )
     inline_worker: bool = field(default_factory=lambda: _parse_bool(os.getenv("INLINE_WORKER"), True))
     default_user_email: str = field(default_factory=lambda: os.getenv("DEFAULT_USER_EMAIL", "local@videoenglish.local"))
     default_user_name: str = field(default_factory=lambda: os.getenv("DEFAULT_USER_NAME", "Local User"))
@@ -100,6 +115,7 @@ class Settings:
         default_factory=lambda: Path(__file__).resolve().parent / "assets" / "dictionaries"
     )
     user_dictionary_dir: Path = field(default_factory=lambda: _default_home_dir() / "dictionary-packs")
+    project_dir: Path = field(default_factory=_resource_root)
 
     @property
     def static_dir(self) -> Path:

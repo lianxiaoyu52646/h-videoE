@@ -1,0 +1,4 @@
+-keepattributes *Annotation*
+-keep class com.videoenglish.app.** { *; }
+-keep class android.webkit.** { *; }
+-dontwarn android.webkit.**

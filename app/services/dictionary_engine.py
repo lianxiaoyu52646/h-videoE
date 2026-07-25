@@ -3,6 +3,8 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import sqlite3
+import threading
 from bisect import bisect_left
 from collections import OrderedDict
 from pathlib import Path
@@ -217,6 +219,58 @@ def _merge_pack_entry(existing: dict | None, incoming: dict) -> dict:
     return merged
 
 
+def _parse_exchange(exchange: str | None, word: str) -> tuple[str, list[str]]:
+    """Parse ECDICT exchange field. Returns (lemma, forms)."""
+    lemma = word
+    forms: list[str] = []
+    if not exchange:
+        return lemma, forms
+    for part in exchange.split("/"):
+        part = part.strip()
+        if ":" not in part:
+            continue
+        code, raw_form = part.split(":", 1)
+        form = normalize_word(raw_form)
+        if not form:
+            continue
+        if code == "0":
+            lemma = form
+        elif form != word and form not in forms:
+            forms.append(form)
+    return lemma, forms
+
+
+def _extract_pos(translation: str | None) -> str | None:
+    if not translation:
+        return None
+    first = translation.split("\n", 1)[0].strip()
+    # e.g. "n. 算法" / "vt. 运行" / "interj. 喂"
+    match = re.match(r"^([a-z]+\.)\s", first, re.IGNORECASE)
+    if match:
+        return match.group(1).lower()
+    return None
+
+
+def _sqlite_row_to_entry(row: tuple, *, source_name: str = "ecdict") -> dict:
+    word, phonetic, translation, exchange, _tags = row
+    normalized = normalize_word(word)
+    lemma, forms = _parse_exchange(exchange, normalized)
+    translation_text = (translation or "").strip() or None
+    return {
+        "word": normalized,
+        "lemma": lemma or normalized,
+        "definition": "",
+        "pronunciation": (phonetic or "").strip() or None,
+        "part_of_speech": _extract_pos(translation_text),
+        "example": None,
+        "translation": translation_text,
+        "youdao_translation": None,
+        "source_name": source_name,
+        "lookup_source": source_name,
+        "forms": forms,
+    }
+
+
 class DictionaryEngine:
     def __init__(
         self,
@@ -234,6 +288,8 @@ class DictionaryEngine:
         self._entries_by_key: dict[str, dict] = {}
         self._sorted_words: list[str] = []
         self._sorted_keys: list[str] = []
+        self._sqlite_conns: list[sqlite3.Connection] = []
+        self._sqlite_lock = threading.Lock()
 
     def invalidate(self) -> None:
         self._signature = ()
@@ -242,6 +298,7 @@ class DictionaryEngine:
         self._sorted_words = []
         self._sorted_keys = []
         self._lookup_cache.clear()
+        self._close_sqlite()
 
     def lookup_local(self, value: str) -> dict | None:
         word = normalize_word(value)
@@ -254,13 +311,23 @@ class DictionaryEngine:
 
         self._load_if_needed()
         result = None
-        for candidate in candidate_words(word):
+        lemma_candidates = candidate_words(word)
+        for candidate in lemma_candidates:
             entry = self._entries_by_key.get(candidate)
             if entry:
                 result = dict(entry)
                 result["matched_word"] = candidate
-                result["lemma_candidates"] = candidate_words(word)
+                result["lemma_candidates"] = lemma_candidates
                 break
+
+        if result is None:
+            for candidate in lemma_candidates:
+                entry = self._lookup_sqlite(candidate)
+                if entry:
+                    result = dict(entry)
+                    result["matched_word"] = candidate
+                    result["lemma_candidates"] = lemma_candidates
+                    break
 
         self._lookup_cache[word] = dict(result) if result else None
         if len(self._lookup_cache) > self._cache_size:
@@ -272,8 +339,6 @@ class DictionaryEngine:
         if not prefix:
             return []
         self._load_if_needed()
-        if not self._sorted_words:
-            return []
 
         out: list[str] = []
         seen: set[str] = set()
@@ -295,12 +360,18 @@ class DictionaryEngine:
             if len(out) >= limit:
                 return out
 
-        fuzzy_matches = difflib.get_close_matches(prefix, self._sorted_keys, n=limit * 4, cutoff=0.72)
-        for candidate in fuzzy_matches:
-            entry = self._entries_by_key.get(candidate)
-            add(entry.get("word") if entry else candidate)
+        for candidate in self._suggest_sqlite(prefix, limit=limit):
+            add(candidate)
             if len(out) >= limit:
-                break
+                return out
+
+        if self._sorted_keys:
+            fuzzy_matches = difflib.get_close_matches(prefix, self._sorted_keys, n=limit * 4, cutoff=0.72)
+            for candidate in fuzzy_matches:
+                entry = self._entries_by_key.get(candidate)
+                add(entry.get("word") if entry else candidate)
+                if len(out) >= limit:
+                    break
         return out
 
     def _prefix_matches(self, sorted_words: list[str], prefix: str) -> list[str]:
@@ -317,7 +388,7 @@ class DictionaryEngine:
         return matches
 
     def _load_if_needed(self) -> None:
-        files = list(self._iter_pack_files())
+        files = list(self._iter_pack_files()) + list(self._iter_sqlite_files())
         signature = tuple(
             (str(path), int(path.stat().st_mtime_ns), path.stat().st_size)
             for path in files
@@ -326,7 +397,7 @@ class DictionaryEngine:
             return
 
         entries_by_word: dict[str, dict] = {}
-        for path in files:
+        for path in self._iter_pack_files():
             source_name = path.stem
             for entry in self._read_pack_file(path, source_name):
                 entries_by_word[entry["word"]] = _merge_pack_entry(entries_by_word.get(entry["word"]), entry)
@@ -345,6 +416,7 @@ class DictionaryEngine:
         self._sorted_words = sorted(entries_by_word)
         self._sorted_keys = sorted(entries_by_key)
         self._lookup_cache.clear()
+        self._open_sqlite()
 
     def _iter_pack_files(self) -> Iterable[Path]:
         for folder in (self._bundled_dir, self._user_dir):
@@ -353,6 +425,84 @@ class DictionaryEngine:
             for path in sorted(folder.glob("*.json")):
                 if path.is_file():
                     yield path
+
+    def _iter_sqlite_files(self) -> Iterable[Path]:
+        seen: set[str] = set()
+        for folder in (self._bundled_dir, self._user_dir):
+            if not folder.exists():
+                continue
+            for path in sorted(folder.glob("*.db")):
+                if not path.is_file():
+                    continue
+                key = str(path.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield path
+
+    def _close_sqlite(self) -> None:
+        with self._sqlite_lock:
+            for conn in self._sqlite_conns:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._sqlite_conns = []
+
+    def _open_sqlite(self) -> None:
+        self._close_sqlite()
+        conns: list[sqlite3.Connection] = []
+        for path in self._iter_sqlite_files():
+            try:
+                uri = path.resolve().as_uri() + "?mode=ro"
+                conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+                conn.execute("SELECT 1 FROM words LIMIT 1")
+                conns.append(conn)
+            except Exception:
+                continue
+        with self._sqlite_lock:
+            self._sqlite_conns = conns
+
+    def _lookup_sqlite(self, word: str) -> dict | None:
+        if not word:
+            return None
+        with self._sqlite_lock:
+            conns = list(self._sqlite_conns)
+        for conn in conns:
+            try:
+                row = conn.execute(
+                    "SELECT word, phonetic, translation, exchange, tags FROM words WHERE word = ? LIMIT 1",
+                    (word,),
+                ).fetchone()
+            except Exception:
+                continue
+            if row:
+                return _sqlite_row_to_entry(row)
+        return None
+
+    def _suggest_sqlite(self, prefix: str, *, limit: int) -> list[str]:
+        if not prefix or limit <= 0:
+            return []
+        results: list[str] = []
+        seen: set[str] = set()
+        with self._sqlite_lock:
+            conns = list(self._sqlite_conns)
+        for conn in conns:
+            try:
+                rows = conn.execute(
+                    "SELECT word FROM words WHERE word LIKE ? ORDER BY word LIMIT ?",
+                    (f"{prefix}%", limit),
+                ).fetchall()
+            except Exception:
+                continue
+            for (raw_word,) in rows:
+                normalized = normalize_word(raw_word)
+                if normalized and normalized not in seen:
+                    seen.add(normalized)
+                    results.append(normalized)
+                    if len(results) >= limit:
+                        return results
+        return results
 
     def _read_pack_file(self, path: Path, source_name: str) -> list[dict]:
         try:

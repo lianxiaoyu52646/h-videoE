@@ -11,26 +11,27 @@ def test_wordbook_catalog_install_persists_entries(client, test_engine):
     assert resp.status_code == 200, resp.text
     items = resp.json()
     keys = {item["key"] for item in items}
-    assert {"cet4_kylebing", "cet6_kylebing", "toefl_gungorkaya", "ielts_grokwords"} <= keys
+    # Bundled packs from KyleBing/english-vocabulary.
+    assert {"cet4_kylebing", "cet6_kylebing", "toefl_kylebing", "ielts_kylebing", "chuzhong_kylebing"} <= keys
 
-    install_resp = client.post("/api/wordbooks/catalog/toefl_gungorkaya/install")
+    install_resp = client.post("/api/wordbooks/catalog/chuzhong_kylebing/install")
     assert install_resp.status_code == 200, install_resp.text
     payload = install_resp.json()
     assert payload["ok"] is True
-    assert payload["catalog"]["key"] == "toefl_gungorkaya"
-    assert payload["wordbook"]["name"] == "TOEFL Essential 1000"
-    assert payload["imported_count"] == 1000
+    assert payload["catalog"]["key"] == "chuzhong_kylebing"
+    assert payload["wordbook"]["name"] == "初中英语词书"
+    assert payload["imported_count"] == 1987
 
     with Session(test_engine) as session:
         catalog = session.exec(
-            select(models.WordBookCatalog).where(models.WordBookCatalog.key == "toefl_gungorkaya")
+            select(models.WordBookCatalog).where(models.WordBookCatalog.key == "chuzhong_kylebing")
         ).first()
         assert catalog is not None
         assert catalog.installed_wordbook_id is not None
         entries = session.exec(
             select(models.WordBookEntry).where(models.WordBookEntry.wordbook_id == catalog.installed_wordbook_id)
         ).all()
-        assert len(entries) == 1000
+        assert len(entries) == 1987
 
 
 def test_library_book_import_caches_and_links_reading(client, test_engine, tmp_path, monkeypatch):

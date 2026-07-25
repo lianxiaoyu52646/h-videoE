@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import database, schemas, security
 from app.config import settings
-from app.routers import app_data, bilibili_auth, jobs, practice, readings, review, videos, vocabulary, wordbooks
+from app.routers import app_data, bilibili_auth, jobs, practice, pk, readings, review, videos, vocabulary, wordbooks
 from app.routers import auth
 
 
@@ -19,11 +19,31 @@ async def lifespan(app: FastAPI):
     database.init_db()
     if settings.local_auto_user:
         security.ensure_default_user_exists()
+    # Preload all bundled KyleBing wordbooks into SQLite for every user.
+    if settings.auto_install_wordbooks:
+        try:
+            from sqlmodel import Session
+            from app.services import wordbook_catalog
+
+            with Session(database.engine) as session:
+                wordbook_catalog.ensure_bundled_wordbooks_for_all_users(session)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("bundled wordbook preinstall failed")
     from app.services import reading_processor
     import asyncio
 
     reading_processor.set_event_loop(asyncio.get_running_loop())
     reading_processor.resume_pending_translations()
+    try:
+        from app.services import book_translate_jobs
+
+        book_translate_jobs.pause_stale_checkpoint()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("book translate checkpoint resume mark failed")
     yield
 
 
@@ -66,30 +86,47 @@ async def api_alias_and_auth(request: Request, call_next):
 
 
 app.mount("/static", StaticFiles(directory=str(settings.static_dir)), name="static")
+app.mount("/mobile", StaticFiles(directory=str(settings.project_dir / "mobile" / "www")), name="mobile")
 
 
 def _static_page(name: str) -> FileResponse:
     return FileResponse(settings.static_dir / name)
 
 
+def _mobile_app() -> FileResponse:
+    return FileResponse(settings.static_dir / "m" / "index.html")
+
+
 @app.get("/")
 def home():
-    return _static_page("index.html")
+    # Web / cloud product lands on mobile-first shell; desktop keeps classic home.
+    if settings.desktop_mode:
+        return _static_page("index.html")
+    return _mobile_app()
+
+
+@app.get("/app")
+def mobile_app_page():
+    return _mobile_app()
 
 
 @app.get("/learn")
 def learn_page():
+    if not settings.desktop_mode:
+        return RedirectResponse("/app", status_code=307)
     return _static_page("learn.html")
 
 
 @app.get("/vocab")
 def vocab_page():
+    if not settings.desktop_mode:
+        return RedirectResponse("/app", status_code=307)
     return _static_page("vocab.html")
 
 
 @app.get("/practice")
 def practice_page():
-    return RedirectResponse("/vocab", status_code=307)
+    return RedirectResponse("/vocab" if settings.desktop_mode else "/app", status_code=307)
 
 
 @app.get("/read")
@@ -104,11 +141,15 @@ def reader_page():
 
 @app.get("/wordbooks")
 def wordbooks_page():
+    if not settings.desktop_mode:
+        return RedirectResponse("/app", status_code=307)
     return FileResponse(settings.static_dir / "wordbooks.html")
 
 
 @app.get("/wordbook")
 def wordbook_detail_page():
+    if not settings.desktop_mode:
+        return RedirectResponse("/app", status_code=307)
     return FileResponse(settings.static_dir / "wordbook.html")
 
 
@@ -134,6 +175,8 @@ def app_shell():
         supports_extension=settings.show_extension_ui,
         profile_name=settings.desktop_profile_name,
         desktop_base_url=settings.desktop_base_url,
+        mobile_home=not settings.desktop_mode,
+        features=["reading", "wordbooks", "vocab", "pk"],
     )
 
 
@@ -147,3 +190,4 @@ app.include_router(bilibili_auth.router)
 app.include_router(wordbooks.router)
 app.include_router(jobs.router)
 app.include_router(app_data.router)
+app.include_router(pk.router)

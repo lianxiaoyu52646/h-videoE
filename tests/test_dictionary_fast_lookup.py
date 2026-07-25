@@ -20,6 +20,17 @@ def test_fast_lookup_hits_local_core_pack(client):
     assert data["pending_enrichment"] is False
 
 
+def test_fast_lookup_hits_ecdict_sqlite(client):
+    # serendipity 不在精简 JSON 词包里，应命中完整 ECDICT SQLite。
+    resp = client.get("/api/word-fast/serendipity")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["word"] == "serendipity"
+    assert data["lookup_source"] == "ecdict"
+    assert data["translation"]
+    assert "偶然" in data["translation"] or "运气" in data["translation"]
+
+
 def test_fast_lookup_lemmatizes_plural(client):
     resp = client.get("/api/word-fast/wizards")
     assert resp.status_code == 200, resp.text

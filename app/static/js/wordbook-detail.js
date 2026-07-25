@@ -109,6 +109,23 @@ function formatEntryDisplay(entry) {
 function formatPhonetic(value) {
   const text = String(value || '').trim();
   if (!text) return '';
+  
+  const usPattern = /(?:美|US|us)\s*([/\[\(][^/\]\)]+[/\]\)])/;
+  const ukPattern = /(?:英|UK|uk)\s*([/\[\(][^/\]\)]+[/\]\)])/;
+  
+  const usMatch = text.match(usPattern);
+  const ukMatch = text.match(ukPattern);
+  
+  if (usMatch && ukMatch) {
+    return `<span class="us">US ${usMatch[1]}</span><span class="uk">UK ${ukMatch[1]}</span>`;
+  }
+  if (usMatch) {
+    return `<span class="us">${usMatch[1]}</span>`;
+  }
+  if (ukMatch) {
+    return `<span class="uk">${ukMatch[1]}</span>`;
+  }
+  
   if (text.startsWith('/') || text.startsWith('[')) return text;
   return `/${text}/`;
 }
@@ -176,11 +193,21 @@ function renderEntries(page) {
             <div class="wordbook-entry-title">
               <div class="wordbook-entry-wordline">
                 <div class="wordbook-entry-word">${escapeHtml(entry.word)}</div>
-                ${entry.pronunciation ? `<div class="wordbook-entry-phonetic">${escapeHtml(entry.pronunciation.includes('美') || entry.pronunciation.includes('英') ? entry.pronunciation : formatPhonetic(entry.pronunciation))}</div>` : ''}
               </div>
-              ${entry.part_of_speech ? `<div class="wordbook-entry-pos">${escapeHtml(entry.part_of_speech)}</div>` : ''}
+              ${entry.pronunciation ? `<div class="wordbook-entry-phonetic">${formatPhonetic(entry.pronunciation)}</div>` : ''}
             </div>
             <div class="wordbook-entry-badges">
+              <span class="wordbook-speak-slot">
+                <button
+                  type="button"
+                  class="wordbook-speak-btn"
+                  data-speak-word="${escapeHtml(entry.word)}"
+                  aria-label="朗读"
+                  title="朗读"
+                >🔊</button>
+              </span>
+              <button type="button" class="btn-sm btn-primary" data-know-entry-id="${entry.id}">会</button>
+              <button type="button" class="btn-sm btn-danger" data-unknown-entry-id="${entry.id}">不会</button>
               <span class="wordbook-save-slot">
                 <button
                   type="button"
@@ -419,7 +446,72 @@ jumpPageInput?.addEventListener('keydown', (event) => {
   }
 });
 
+function speakWord(word) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(word);
+  utterance.lang = 'en-US';
+  utterance.rate = 0.9;
+  window.speechSynthesis.speak(utterance);
+}
+
 entriesList?.addEventListener('click', async (event) => {
+  const speakBtn = event.target.closest('[data-speak-word]');
+  if (speakBtn) {
+    const word = speakBtn.dataset.speakWord;
+    if (word) speakWord(word);
+    return;
+  }
+
+  const unknownBtn = event.target.closest('[data-unknown-entry-id]');
+  if (unknownBtn) {
+    const entryId = parseInt(unknownBtn.dataset.unknownEntryId || '0', 10);
+    const entry = currentEntryMap.get(String(entryId));
+    if (!entry) return;
+    try {
+      await api('/api/vocab/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          word: entry.word,
+          source_platform: 'wordbook',
+          source_video_id: `wordbook-${wordbookId}`,
+          source_url: `/wordbook?id=${wordbookId}`,
+          source_title: currentWordbook?.name || '词书',
+          sentence: entry.example || entry.definition || '',
+          sentence_translation: entry.translation || '',
+          definition: entry.definition || '',
+          pronunciation: entry.pronunciation || '',
+          part_of_speech: entry.part_of_speech || '',
+          translation: entry.translation || '',
+          wordbook_id: wordbookId,
+        }),
+      });
+      starredWords.add(normalizeWord(entry.word));
+      setStatus(`「${entry.word}」已进生词本`, 'success');
+      if (currentPageState) renderEntries(currentPageState);
+    } catch (err) {
+      setStatus(err.message, 'error');
+    }
+    return;
+  }
+
+  const knowBtn = event.target.closest('[data-know-entry-id]');
+  if (knowBtn) {
+    const entryId = parseInt(knowBtn.dataset.knowEntryId || '0', 10);
+    const entry = currentEntryMap.get(String(entryId));
+    if (!entry) return;
+    try {
+      await api(`/api/vocab/by-word/${encodeURIComponent(entry.word)}`, { method: 'DELETE' });
+      starredWords.delete(normalizeWord(entry.word));
+      setStatus(`「${entry.word}」标记为会`, 'success');
+      if (currentPageState) renderEntries(currentPageState);
+    } catch (_) {
+      setStatus(`「${entry.word}」已会，继续下一个吧`, 'success');
+    }
+    return;
+  }
+
   const button = event.target.closest('[data-save-entry-id]');
   if (!button) return;
   const entryId = parseInt(button.dataset.saveEntryId || '0', 10);

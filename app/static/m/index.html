@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#FF5C8A" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>WordPop 单词泡泡</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/mobile.css" />
+  <link rel="manifest" href="/static/m/manifest.webmanifest" />
+</head>
+<body class="app-mobile">
+  <header class="m-top">
+    <div class="m-brand"><span class="m-logo">🫧</span><span id="appTitle">WordPop</span></div>
+    <button class="m-user" id="userBtn" type="button">未登录</button>
+  </header>
+
+  <main class="m-main">
+    <section id="view-read" class="view active"></section>
+    <section id="view-books" class="view"></section>
+    <section id="view-vocab" class="view"></section>
+    <section id="view-pk" class="view"></section>
+    <section id="view-mine" class="view"></section>
+  </main>
+
+  <nav class="m-nav m-nav-5" id="tabNav">
+    <button type="button" data-tab="read" class="active"><span class="ico">📖</span>阅读</button>
+    <button type="button" data-tab="books"><span class="ico">📚</span>词书</button>
+    <button type="button" data-tab="vocab"><span class="ico">⭐</span>生词</button>
+    <button type="button" data-tab="pk"><span class="ico">⚔️</span>对战</button>
+    <button type="button" data-tab="mine"><span class="ico">👤</span>我的</button>
+  </nav>
+
+  <div id="modalHost"></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="/static/js/session.js"></script>
+  <script src="/static/m/app.js"></script>
+</body>
+</html>

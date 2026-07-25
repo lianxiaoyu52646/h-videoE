@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>视频英语</title>
+  <link rel="stylesheet" href="css/styles.css?v=20260719g">
+</head>
+<body class="theme-dark">
+  <nav class="nav-bar">
+    <div class="nav-bar-inner">
+      <div class="nav-bar-title">视频英语</div>
+      <div class="nav-bar-actions">
+        <button class="nav-bar-btn" onclick="navigateTo('wordbooks')">📚</button>
+        <button class="nav-bar-btn" onclick="navigateTo('reader')">📖</button>
+        <button class="nav-bar-btn" onclick="navigateTo('practice')">✏️</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page-content" id="pageContent">
+    <div class="home-page">
+      <div class="card home-card">
+        <h2>📖 阅读练习</h2>
+        <p>选择一本英文书籍，开始沉浸式阅读</p>
+        <button class="btn-primary" onclick="navigateTo('reader')">开始阅读</button>
+      </div>
+      <div class="card home-card">
+        <h2>📚 单词本</h2>
+        <p>管理和复习您收藏的单词</p>
+        <button class="btn-primary" onclick="navigateTo('wordbooks')">打开单词本</button>
+      </div>
+      <div class="card home-card">
+        <h2>✏️ 练习模式</h2>
+        <p>通过练习巩固所学知识</p>
+        <button class="btn-primary" onclick="navigateTo('practice')">开始练习</button>
+      </div>
+    </div>
+  </main>
+
+  <div id="wordPopover" class="word-popover hidden">
+    <button class="word-popover-close" onclick="hideWordPopover()">×</button>
+    <div class="word-popover-body" id="wordPopoverBody"></div>
+    <div class="word-popover-actions">
+      <button id="speakWordBtn" class="btn-secondary btn-sm">🔊</button>
+      <button id="saveWordBtn" class="btn-primary btn-sm">☆</button>
+    </div>
+  </div>
+
+  <script src="js/db.js?v=20260719j"></script>
+  <script src="js/translate.js?v=20260719j"></script>
+  <script src="js/dictionary.js?v=20260719j"></script>
+  <script src="js/ui.js?v=20260719j"></script>
+  <script src="js/app.js?v=20260719j"></script>
+</body>
+</html>

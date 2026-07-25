@@ -24,6 +24,9 @@ _generations: dict[int, int] = {}
 _chapter_queues: dict[int, asyncio.Queue] = {}
 _queue_workers: dict[int, asyncio.Task] = {}
 _queued_chapters: dict[int, set[int]] = {}
+_window_queues: dict[int, asyncio.Queue] = {}
+_window_workers: dict[int, asyncio.Task] = {}
+_queued_windows: dict[int, set[tuple[int, int]]] = {}
 _sse_publish: Optional[Callable[[int, str, dict], None]] = None
 
 
@@ -37,7 +40,10 @@ def is_translating(doc_id: int) -> bool:
     if task is not None and not task.done():
         return True
     worker = _queue_workers.get(doc_id)
-    return worker is not None and not worker.done()
+    if worker is not None and not worker.done():
+        return True
+    win = _window_workers.get(doc_id)
+    return win is not None and not win.done()
 
 
 def _emit(doc_id: int, event: str, data: dict):
@@ -113,6 +119,27 @@ async def _stop_chapter_worker(doc_id: int):
             pass
 
 
+async def _stop_window_worker(doc_id: int):
+    queued = _queued_windows.pop(doc_id, None)
+    if queued is not None:
+        queued.clear()
+    queue = _window_queues.get(doc_id)
+    if queue is not None:
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+                queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+    worker = _window_workers.pop(doc_id, None)
+    if worker and not worker.done():
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+
+
 _main_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -162,6 +189,26 @@ def start_chapter_translation(
 ):
     """按需翻译指定章节（懒加载）"""
     _schedule(_enqueue_chapter(doc_id, chapter_index, prefetch_next, job_id))
+
+
+def start_window_translation(
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+    *,
+    prefetch_end: int | None = None,
+    job_id: int | None = None,
+):
+    """按阅读窗口懒翻译：当前区间 + 可选预取下一批。"""
+    _schedule(
+        _enqueue_window(
+            doc_id,
+            start_block,
+            end_block,
+            prefetch_end=prefetch_end,
+            job_id=job_id,
+        )
+    )
 
 
 async def run_chapter_job(
@@ -224,6 +271,123 @@ async def _chapter_queue_worker(doc_id: int):
         _queued_chapters.pop(doc_id, None)
 
 
+async def _enqueue_window(
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+    *,
+    prefetch_end: int | None = None,
+    job_id: int | None = None,
+):
+    start_block = max(0, int(start_block))
+    end_block = max(start_block, int(end_block))
+    key = (start_block, end_block)
+    queued = _queued_windows.setdefault(doc_id, set())
+    if key not in queued:
+        queued.add(key)
+        queue = _window_queues.setdefault(doc_id, asyncio.Queue())
+        await queue.put((start_block, end_block, job_id))
+        await _ensure_window_worker(doc_id)
+
+    if prefetch_end is not None:
+        pref = max(end_block, int(prefetch_end))
+        if pref > end_block:
+            pref_key = (end_block + 1, pref)
+            if pref_key not in queued:
+                queued.add(pref_key)
+                queue = _window_queues.setdefault(doc_id, asyncio.Queue())
+                await queue.put((end_block + 1, pref, None))
+                await _ensure_window_worker(doc_id)
+
+
+async def _ensure_window_worker(doc_id: int):
+    worker = _window_workers.get(doc_id)
+    if worker is not None and not worker.done():
+        return
+    _window_workers[doc_id] = asyncio.create_task(_window_queue_worker(doc_id))
+
+
+async def _window_queue_worker(doc_id: int):
+    queue = _window_queues.setdefault(doc_id, asyncio.Queue())
+    try:
+        while True:
+            try:
+                start_block, end_block, job_id = await asyncio.wait_for(
+                    queue.get(), timeout=45.0
+                )
+            except asyncio.TimeoutError:
+                break
+            _queued_windows.get(doc_id, set()).discard((start_block, end_block))
+            try:
+                await _translate_window_impl(
+                    doc_id, start_block, end_block, job_id=job_id
+                )
+            finally:
+                queue.task_done()
+    finally:
+        _window_workers.pop(doc_id, None)
+        _queued_windows.pop(doc_id, None)
+
+
+async def _translate_window_impl(
+    doc_id: int,
+    start_block: int,
+    end_block: int,
+    *,
+    job_id: int | None = None,
+):
+    gen = _generations.get(doc_id, 0)
+    _update_doc_job(
+        doc_id,
+        job_id=job_id,
+        status="translating",
+        message=f"正在翻译第 {start_block + 1}–{end_block + 1} 段",
+    )
+    _emit(doc_id, "status", {
+        "translate_status": "translating",
+        "start_block": start_block,
+        "end_block": end_block,
+        "status_message": f"正在翻译第 {start_block + 1}–{end_block + 1} 段",
+    })
+
+    meaningful, nonempty, _ratio = await _translate_range_impl(
+        doc_id,
+        gen,
+        start_block,
+        end_block,
+        job_id=job_id,
+    )
+
+    translated, doc_total = _sync_doc_progress(doc_id, reconcile=True)
+    all_done = doc_total > 0 and translated >= doc_total
+    if all_done:
+        status, message, event = "done", "翻译完成", "done"
+    else:
+        status = "ready"
+        message = (
+            f"第 {start_block + 1}–{end_block + 1} 段可阅读"
+            f"（{nonempty}/{max(meaningful, 1)}）"
+        )
+        event = "window_done"
+
+    _sync_doc_progress(doc_id, status=status, message=message)
+    _update_doc_job(
+        doc_id,
+        job_id=job_id,
+        status="done" if all_done else status,
+        progress=100 if all_done else min(99, int(translated / max(doc_total, 1) * 100)),
+        message=message,
+    )
+    _emit(doc_id, event, {
+        "translate_status": status,
+        "start_block": start_block,
+        "end_block": end_block,
+        "status_message": message,
+        "translated_blocks": translated,
+        "translate_progress": min(100, int(translated / max(doc_total, 1) * 100)),
+    })
+
+
 async def translate_document(
     doc_id: int,
     force: bool = False,
@@ -235,6 +399,7 @@ async def translate_document(
         _generations[doc_id] = _generations.get(doc_id, 0) + 1
         await _cancel_doc_task(doc_id)
         await _stop_chapter_worker(doc_id)
+        await _stop_window_worker(doc_id)
         if force:
             reading_cache.invalidate_doc(doc_id)
     elif _running_tasks.get(doc_id) is not None and not _running_tasks[doc_id].done():
@@ -392,6 +557,18 @@ async def _process_batch(
                 })
         if newly_translated:
             crud.increment_translated_blocks(db, doc_id, newly_translated)
+        try:
+            from app.services import book_shared
+
+            book_shared.save_block_translations_to_shared(
+                db,
+                doc_id,
+                need,
+                translated,
+                source="youdao",
+            )
+        except Exception:
+            logger.exception("save shared book translation failed doc=%s", doc_id)
         db.commit()
     return True
 
@@ -442,6 +619,14 @@ async def _retry_untranslated_in_range(
                 crud.save_translation_cache(db, block.text, tr)
                 if not had_translation:
                     crud.increment_translated_blocks(db, doc_id, 1)
+                try:
+                    from app.services import book_shared
+
+                    book_shared.save_block_translations_to_shared(
+                        db, doc_id, [db_block], [tr], source="youdao"
+                    )
+                except Exception:
+                    logger.exception("save shared book translation failed doc=%s", doc_id)
                 db.commit()
                 reading_cache.patch_block_translation(doc_id, db_block.order_index, tr)
                 _emit(doc_id, "translated", {
@@ -474,7 +659,12 @@ async def _translate_range_impl(
             applied = crud.apply_cached_translations_in_range(
                 db, doc_id, start_block, end_block
             )
-            if applied:
+            from app.services import book_shared
+
+            shared_applied = book_shared.hydrate_document_range(
+                db, doc_id, start_block, end_block
+            )
+            if applied or shared_applied:
                 reading_cache.invalidate_doc(doc_id)
 
     blocks = _get_blocks_range(doc_id, start_block, end_block)

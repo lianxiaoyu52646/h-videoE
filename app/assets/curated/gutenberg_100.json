@@ -1,0 +1,1722 @@
+[
+  {
+    "key": "pg_1342",
+    "provider": "gutenberg",
+    "gutenberg_id": 1342,
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #1342 — Pride and Prejudice",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1342",
+    "raw_url": "https://www.gutenberg.org/ebooks/1342.txt.utf-8",
+    "asset_file": "1342.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_158",
+    "provider": "gutenberg",
+    "gutenberg_id": 158,
+    "title": "Emma",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #158 — Emma",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/158",
+    "raw_url": "https://www.gutenberg.org/ebooks/158.txt.utf-8",
+    "asset_file": "158.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_161",
+    "provider": "gutenberg",
+    "gutenberg_id": 161,
+    "title": "Sense and Sensibility",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #161 — Sense and Sensibility",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/161",
+    "raw_url": "https://www.gutenberg.org/ebooks/161.txt.utf-8",
+    "asset_file": "161.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_141",
+    "provider": "gutenberg",
+    "gutenberg_id": 141,
+    "title": "Mansfield Park",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #141 — Mansfield Park",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/141",
+    "raw_url": "https://www.gutenberg.org/ebooks/141.txt.utf-8",
+    "asset_file": "141.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_121",
+    "provider": "gutenberg",
+    "gutenberg_id": 121,
+    "title": "Northanger Abbey",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #121 — Northanger Abbey",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/121",
+    "raw_url": "https://www.gutenberg.org/ebooks/121.txt.utf-8",
+    "asset_file": "121.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_105",
+    "provider": "gutenberg",
+    "gutenberg_id": 105,
+    "title": "Persuasion",
+    "author": "Jane Austen",
+    "description": "Project Gutenberg #105 — Persuasion",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/105",
+    "raw_url": "https://www.gutenberg.org/ebooks/105.txt.utf-8",
+    "asset_file": "105.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_11",
+    "provider": "gutenberg",
+    "gutenberg_id": 11,
+    "title": "Alice's Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "description": "Project Gutenberg #11 — Alice's Adventures in Wonderland",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/11",
+    "raw_url": "https://www.gutenberg.org/ebooks/11.txt.utf-8",
+    "asset_file": "11.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fantasy",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_12",
+    "provider": "gutenberg",
+    "gutenberg_id": 12,
+    "title": "Through the Looking-Glass",
+    "author": "Lewis Carroll",
+    "description": "Project Gutenberg #12 — Through the Looking-Glass",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/12",
+    "raw_url": "https://www.gutenberg.org/ebooks/12.txt.utf-8",
+    "asset_file": "12.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fantasy",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_84",
+    "provider": "gutenberg",
+    "gutenberg_id": 84,
+    "title": "Frankenstein",
+    "author": "Mary Shelley",
+    "description": "Project Gutenberg #84 — Frankenstein",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/84",
+    "raw_url": "https://www.gutenberg.org/ebooks/84.txt.utf-8",
+    "asset_file": "84.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "gothic",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_43",
+    "provider": "gutenberg",
+    "gutenberg_id": 43,
+    "title": "The Strange Case of Dr. Jekyll and Mr. Hyde",
+    "author": "Robert Louis Stevenson",
+    "description": "Project Gutenberg #43 — The Strange Case of Dr. Jekyll and Mr. Hyde",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/43",
+    "raw_url": "https://www.gutenberg.org/ebooks/43.txt.utf-8",
+    "asset_file": "43.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "gothic"
+    ]
+  },
+  {
+    "key": "pg_16",
+    "provider": "gutenberg",
+    "gutenberg_id": 16,
+    "title": "Peter Pan",
+    "author": "J. M. Barrie",
+    "description": "Project Gutenberg #16 — Peter Pan",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/16",
+    "raw_url": "https://www.gutenberg.org/ebooks/16.txt.utf-8",
+    "asset_file": "16.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fantasy",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_55",
+    "provider": "gutenberg",
+    "gutenberg_id": 55,
+    "title": "The Wonderful Wizard of Oz",
+    "author": "L. Frank Baum",
+    "description": "Project Gutenberg #55 — The Wonderful Wizard of Oz",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/55",
+    "raw_url": "https://www.gutenberg.org/ebooks/55.txt.utf-8",
+    "asset_file": "55.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fantasy",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_35",
+    "provider": "gutenberg",
+    "gutenberg_id": 35,
+    "title": "The Time Machine",
+    "author": "H. G. Wells",
+    "description": "Project Gutenberg #35 — The Time Machine",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/35",
+    "raw_url": "https://www.gutenberg.org/ebooks/35.txt.utf-8",
+    "asset_file": "35.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_36",
+    "provider": "gutenberg",
+    "gutenberg_id": 36,
+    "title": "The War of the Worlds",
+    "author": "H. G. Wells",
+    "description": "Project Gutenberg #36 — The War of the Worlds",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/36",
+    "raw_url": "https://www.gutenberg.org/ebooks/36.txt.utf-8",
+    "asset_file": "36.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_159",
+    "provider": "gutenberg",
+    "gutenberg_id": 159,
+    "title": "The Invisible Man",
+    "author": "H. G. Wells",
+    "description": "Project Gutenberg #159 — The Invisible Man",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/159",
+    "raw_url": "https://www.gutenberg.org/ebooks/159.txt.utf-8",
+    "asset_file": "159.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_174",
+    "provider": "gutenberg",
+    "gutenberg_id": 174,
+    "title": "The Picture of Dorian Gray",
+    "author": "Oscar Wilde",
+    "description": "Project Gutenberg #174 — The Picture of Dorian Gray",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/174",
+    "raw_url": "https://www.gutenberg.org/ebooks/174.txt.utf-8",
+    "asset_file": "174.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_844",
+    "provider": "gutenberg",
+    "gutenberg_id": 844,
+    "title": "The Importance of Being Earnest",
+    "author": "Oscar Wilde",
+    "description": "Project Gutenberg #844 — The Importance of Being Earnest",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/844",
+    "raw_url": "https://www.gutenberg.org/ebooks/844.txt.utf-8",
+    "asset_file": "844.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1661",
+    "provider": "gutenberg",
+    "gutenberg_id": 1661,
+    "title": "The Adventures of Sherlock Holmes",
+    "author": "Arthur Conan Doyle",
+    "description": "Project Gutenberg #1661 — The Adventures of Sherlock Holmes",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1661",
+    "raw_url": "https://www.gutenberg.org/ebooks/1661.txt.utf-8",
+    "asset_file": "1661.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "mystery"
+    ]
+  },
+  {
+    "key": "pg_244",
+    "provider": "gutenberg",
+    "gutenberg_id": 244,
+    "title": "A Study in Scarlet",
+    "author": "Arthur Conan Doyle",
+    "description": "Project Gutenberg #244 — A Study in Scarlet",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/244",
+    "raw_url": "https://www.gutenberg.org/ebooks/244.txt.utf-8",
+    "asset_file": "244.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "mystery"
+    ]
+  },
+  {
+    "key": "pg_2852",
+    "provider": "gutenberg",
+    "gutenberg_id": 2852,
+    "title": "The Hound of the Baskervilles",
+    "author": "Arthur Conan Doyle",
+    "description": "Project Gutenberg #2852 — The Hound of the Baskervilles",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2852",
+    "raw_url": "https://www.gutenberg.org/ebooks/2852.txt.utf-8",
+    "asset_file": "2852.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "mystery"
+    ]
+  },
+  {
+    "key": "pg_863",
+    "provider": "gutenberg",
+    "gutenberg_id": 863,
+    "title": "The Importance of Being Earnest (play)",
+    "author": "Oscar Wilde",
+    "description": "Project Gutenberg #863 — The Importance of Being Earnest (play)",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/863",
+    "raw_url": "https://www.gutenberg.org/ebooks/863.txt.utf-8",
+    "asset_file": "863.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_345",
+    "provider": "gutenberg",
+    "gutenberg_id": 345,
+    "title": "Dracula",
+    "author": "Bram Stoker",
+    "description": "Project Gutenberg #345 — Dracula",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/345",
+    "raw_url": "https://www.gutenberg.org/ebooks/345.txt.utf-8",
+    "asset_file": "345.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "gothic",
+      "horror"
+    ]
+  },
+  {
+    "key": "pg_1952",
+    "provider": "gutenberg",
+    "gutenberg_id": 1952,
+    "title": "The Yellow Wallpaper",
+    "author": "Charlotte Perkins Gilman",
+    "description": "Project Gutenberg #1952 — The Yellow Wallpaper",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1952",
+    "raw_url": "https://www.gutenberg.org/ebooks/1952.txt.utf-8",
+    "asset_file": "1952.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "short"
+    ]
+  },
+  {
+    "key": "pg_1260",
+    "provider": "gutenberg",
+    "gutenberg_id": 1260,
+    "title": "Jane Eyre",
+    "author": "Charlotte Brontë",
+    "description": "Project Gutenberg #1260 — Jane Eyre",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1260",
+    "raw_url": "https://www.gutenberg.org/ebooks/1260.txt.utf-8",
+    "asset_file": "1260.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_768",
+    "provider": "gutenberg",
+    "gutenberg_id": 768,
+    "title": "Wuthering Heights",
+    "author": "Emily Brontë",
+    "description": "Project Gutenberg #768 — Wuthering Heights",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/768",
+    "raw_url": "https://www.gutenberg.org/ebooks/768.txt.utf-8",
+    "asset_file": "768.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "romance",
+      "gothic"
+    ]
+  },
+  {
+    "key": "pg_767",
+    "provider": "gutenberg",
+    "gutenberg_id": 767,
+    "title": "Agnes Grey",
+    "author": "Anne Brontë",
+    "description": "Project Gutenberg #767 — Agnes Grey",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/767",
+    "raw_url": "https://www.gutenberg.org/ebooks/767.txt.utf-8",
+    "asset_file": "767.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_1400",
+    "provider": "gutenberg",
+    "gutenberg_id": 1400,
+    "title": "Great Expectations",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #1400 — Great Expectations",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1400",
+    "raw_url": "https://www.gutenberg.org/ebooks/1400.txt.utf-8",
+    "asset_file": "1400.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_98",
+    "provider": "gutenberg",
+    "gutenberg_id": 98,
+    "title": "A Tale of Two Cities",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #98 — A Tale of Two Cities",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/98",
+    "raw_url": "https://www.gutenberg.org/ebooks/98.txt.utf-8",
+    "asset_file": "98.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_730",
+    "provider": "gutenberg",
+    "gutenberg_id": 730,
+    "title": "Oliver Twist",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #730 — Oliver Twist",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/730",
+    "raw_url": "https://www.gutenberg.org/ebooks/730.txt.utf-8",
+    "asset_file": "730.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_580",
+    "provider": "gutenberg",
+    "gutenberg_id": 580,
+    "title": "The Pickwick Papers",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #580 — The Pickwick Papers",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/580",
+    "raw_url": "https://www.gutenberg.org/ebooks/580.txt.utf-8",
+    "asset_file": "580.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_46",
+    "provider": "gutenberg",
+    "gutenberg_id": 46,
+    "title": "A Christmas Carol",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #46 — A Christmas Carol",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/46",
+    "raw_url": "https://www.gutenberg.org/ebooks/46.txt.utf-8",
+    "asset_file": "46.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic",
+      "short"
+    ]
+  },
+  {
+    "key": "pg_766",
+    "provider": "gutenberg",
+    "gutenberg_id": 766,
+    "title": "David Copperfield",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #766 — David Copperfield",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/766",
+    "raw_url": "https://www.gutenberg.org/ebooks/766.txt.utf-8",
+    "asset_file": "766.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_1023",
+    "provider": "gutenberg",
+    "gutenberg_id": 1023,
+    "title": "Bleak House",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #1023 — Bleak House",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1023",
+    "raw_url": "https://www.gutenberg.org/ebooks/1023.txt.utf-8",
+    "asset_file": "1023.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_963",
+    "provider": "gutenberg",
+    "gutenberg_id": 963,
+    "title": "The Old Curiosity Shop",
+    "author": "Charles Dickens",
+    "description": "Project Gutenberg #963 — The Old Curiosity Shop",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/963",
+    "raw_url": "https://www.gutenberg.org/ebooks/963.txt.utf-8",
+    "asset_file": "963.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_2701",
+    "provider": "gutenberg",
+    "gutenberg_id": 2701,
+    "title": "Moby Dick; Or, The Whale",
+    "author": "Herman Melville",
+    "description": "Project Gutenberg #2701 — Moby Dick; Or, The Whale",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2701",
+    "raw_url": "https://www.gutenberg.org/ebooks/2701.txt.utf-8",
+    "asset_file": "2701.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_15",
+    "provider": "gutenberg",
+    "gutenberg_id": 15,
+    "title": "Moby-Dick (alternate)",
+    "author": "Herman Melville",
+    "description": "Project Gutenberg #15 — Moby-Dick (alternate)",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/15",
+    "raw_url": "https://www.gutenberg.org/ebooks/15.txt.utf-8",
+    "asset_file": "15.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_76",
+    "provider": "gutenberg",
+    "gutenberg_id": 76,
+    "title": "Adventures of Huckleberry Finn",
+    "author": "Mark Twain",
+    "description": "Project Gutenberg #76 — Adventures of Huckleberry Finn",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/76",
+    "raw_url": "https://www.gutenberg.org/ebooks/76.txt.utf-8",
+    "asset_file": "76.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_74",
+    "provider": "gutenberg",
+    "gutenberg_id": 74,
+    "title": "The Adventures of Tom Sawyer",
+    "author": "Mark Twain",
+    "description": "Project Gutenberg #74 — The Adventures of Tom Sawyer",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/74",
+    "raw_url": "https://www.gutenberg.org/ebooks/74.txt.utf-8",
+    "asset_file": "74.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_119",
+    "provider": "gutenberg",
+    "gutenberg_id": 119,
+    "title": "A Connecticut Yankee in King Arthur's Court",
+    "author": "Mark Twain",
+    "description": "Project Gutenberg #119 — A Connecticut Yankee in King Arthur's Court",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/119",
+    "raw_url": "https://www.gutenberg.org/ebooks/119.txt.utf-8",
+    "asset_file": "119.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_1837",
+    "provider": "gutenberg",
+    "gutenberg_id": 1837,
+    "title": "The Prince and the Pauper",
+    "author": "Mark Twain",
+    "description": "Project Gutenberg #1837 — The Prince and the Pauper",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1837",
+    "raw_url": "https://www.gutenberg.org/ebooks/1837.txt.utf-8",
+    "asset_file": "1837.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_2591",
+    "provider": "gutenberg",
+    "gutenberg_id": 2591,
+    "title": "Grimms' Fairy Tales",
+    "author": "Jacob & Wilhelm Grimm",
+    "description": "Project Gutenberg #2591 — Grimms' Fairy Tales",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2591",
+    "raw_url": "https://www.gutenberg.org/ebooks/2591.txt.utf-8",
+    "asset_file": "2591.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fairy-tale"
+    ]
+  },
+  {
+    "key": "pg_27200",
+    "provider": "gutenberg",
+    "gutenberg_id": 27200,
+    "title": "Fairy Tales of Hans Christian Andersen",
+    "author": "Hans Christian Andersen",
+    "description": "Project Gutenberg #27200 — Fairy Tales of Hans Christian Andersen",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/27200",
+    "raw_url": "https://www.gutenberg.org/ebooks/27200.txt.utf-8",
+    "asset_file": "27200.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fairy-tale"
+    ]
+  },
+  {
+    "key": "pg_5200",
+    "provider": "gutenberg",
+    "gutenberg_id": 5200,
+    "title": "Metamorphosis",
+    "author": "Franz Kafka",
+    "description": "Project Gutenberg #5200 — Metamorphosis",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/5200",
+    "raw_url": "https://www.gutenberg.org/ebooks/5200.txt.utf-8",
+    "asset_file": "5200.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic",
+      "short"
+    ]
+  },
+  {
+    "key": "pg_2554",
+    "provider": "gutenberg",
+    "gutenberg_id": 2554,
+    "title": "Crime and Punishment",
+    "author": "Fyodor Dostoyevsky",
+    "description": "Project Gutenberg #2554 — Crime and Punishment",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2554",
+    "raw_url": "https://www.gutenberg.org/ebooks/2554.txt.utf-8",
+    "asset_file": "2554.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_28054",
+    "provider": "gutenberg",
+    "gutenberg_id": 28054,
+    "title": "The Brothers Karamazov",
+    "author": "Fyodor Dostoyevsky",
+    "description": "Project Gutenberg #28054 — The Brothers Karamazov",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/28054",
+    "raw_url": "https://www.gutenberg.org/ebooks/28054.txt.utf-8",
+    "asset_file": "28054.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_1399",
+    "provider": "gutenberg",
+    "gutenberg_id": 1399,
+    "title": "Anna Karenina",
+    "author": "Leo Tolstoy",
+    "description": "Project Gutenberg #1399 — Anna Karenina",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1399",
+    "raw_url": "https://www.gutenberg.org/ebooks/1399.txt.utf-8",
+    "asset_file": "1399.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_2600",
+    "provider": "gutenberg",
+    "gutenberg_id": 2600,
+    "title": "War and Peace",
+    "author": "Leo Tolstoy",
+    "description": "Project Gutenberg #2600 — War and Peace",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2600",
+    "raw_url": "https://www.gutenberg.org/ebooks/2600.txt.utf-8",
+    "asset_file": "2600.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_6130",
+    "provider": "gutenberg",
+    "gutenberg_id": 6130,
+    "title": "The Iliad",
+    "author": "Homer",
+    "description": "Project Gutenberg #6130 — The Iliad",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/6130",
+    "raw_url": "https://www.gutenberg.org/ebooks/6130.txt.utf-8",
+    "asset_file": "6130.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "epic"
+    ]
+  },
+  {
+    "key": "pg_1727",
+    "provider": "gutenberg",
+    "gutenberg_id": 1727,
+    "title": "The Odyssey",
+    "author": "Homer",
+    "description": "Project Gutenberg #1727 — The Odyssey",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1727",
+    "raw_url": "https://www.gutenberg.org/ebooks/1727.txt.utf-8",
+    "asset_file": "1727.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "epic"
+    ]
+  },
+  {
+    "key": "pg_1497",
+    "provider": "gutenberg",
+    "gutenberg_id": 1497,
+    "title": "The Republic",
+    "author": "Plato",
+    "description": "Project Gutenberg #1497 — The Republic",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1497",
+    "raw_url": "https://www.gutenberg.org/ebooks/1497.txt.utf-8",
+    "asset_file": "1497.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "philosophy"
+    ]
+  },
+  {
+    "key": "pg_1232",
+    "provider": "gutenberg",
+    "gutenberg_id": 1232,
+    "title": "The Prince",
+    "author": "Niccolò Machiavelli",
+    "description": "Project Gutenberg #1232 — The Prince",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1232",
+    "raw_url": "https://www.gutenberg.org/ebooks/1232.txt.utf-8",
+    "asset_file": "1232.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "philosophy"
+    ]
+  },
+  {
+    "key": "pg_8800",
+    "provider": "gutenberg",
+    "gutenberg_id": 8800,
+    "title": "The Divine Comedy",
+    "author": "Dante Alighieri",
+    "description": "Project Gutenberg #8800 — The Divine Comedy",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/8800",
+    "raw_url": "https://www.gutenberg.org/ebooks/8800.txt.utf-8",
+    "asset_file": "8800.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "epic"
+    ]
+  },
+  {
+    "key": "pg_996",
+    "provider": "gutenberg",
+    "gutenberg_id": 996,
+    "title": "Don Quixote",
+    "author": "Miguel de Cervantes",
+    "description": "Project Gutenberg #996 — Don Quixote",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/996",
+    "raw_url": "https://www.gutenberg.org/ebooks/996.txt.utf-8",
+    "asset_file": "996.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_1184",
+    "provider": "gutenberg",
+    "gutenberg_id": 1184,
+    "title": "The Count of Monte Cristo",
+    "author": "Alexandre Dumas",
+    "description": "Project Gutenberg #1184 — The Count of Monte Cristo",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1184",
+    "raw_url": "https://www.gutenberg.org/ebooks/1184.txt.utf-8",
+    "asset_file": "1184.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_1251",
+    "provider": "gutenberg",
+    "gutenberg_id": 1251,
+    "title": "Three Musketeers",
+    "author": "Alexandre Dumas",
+    "description": "Project Gutenberg #1251 — Three Musketeers",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1251",
+    "raw_url": "https://www.gutenberg.org/ebooks/1251.txt.utf-8",
+    "asset_file": "1251.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_139",
+    "provider": "gutenberg",
+    "gutenberg_id": 139,
+    "title": "The Jungle Book",
+    "author": "Rudyard Kipling",
+    "description": "Project Gutenberg #139 — The Jungle Book",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/139",
+    "raw_url": "https://www.gutenberg.org/ebooks/139.txt.utf-8",
+    "asset_file": "139.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "children",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_236",
+    "provider": "gutenberg",
+    "gutenberg_id": 236,
+    "title": "The Jungle Book (alt)",
+    "author": "Rudyard Kipling",
+    "description": "Project Gutenberg #236 — The Jungle Book (alt)",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/236",
+    "raw_url": "https://www.gutenberg.org/ebooks/236.txt.utf-8",
+    "asset_file": "236.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_103",
+    "provider": "gutenberg",
+    "gutenberg_id": 103,
+    "title": "Around the World in Eighty Days",
+    "author": "Jules Verne",
+    "description": "Project Gutenberg #103 — Around the World in Eighty Days",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/103",
+    "raw_url": "https://www.gutenberg.org/ebooks/103.txt.utf-8",
+    "asset_file": "103.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_164",
+    "provider": "gutenberg",
+    "gutenberg_id": 164,
+    "title": "Twenty Thousand Leagues under the Sea",
+    "author": "Jules Verne",
+    "description": "Project Gutenberg #164 — Twenty Thousand Leagues under the Sea",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/164",
+    "raw_url": "https://www.gutenberg.org/ebooks/164.txt.utf-8",
+    "asset_file": "164.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_83",
+    "provider": "gutenberg",
+    "gutenberg_id": 83,
+    "title": "From the Earth to the Moon",
+    "author": "Jules Verne",
+    "description": "Project Gutenberg #83 — From the Earth to the Moon",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/83",
+    "raw_url": "https://www.gutenberg.org/ebooks/83.txt.utf-8",
+    "asset_file": "83.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "sci-fi"
+    ]
+  },
+  {
+    "key": "pg_120",
+    "provider": "gutenberg",
+    "gutenberg_id": 120,
+    "title": "Treasure Island",
+    "author": "Robert Louis Stevenson",
+    "description": "Project Gutenberg #120 — Treasure Island",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/120",
+    "raw_url": "https://www.gutenberg.org/ebooks/120.txt.utf-8",
+    "asset_file": "120.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_4217",
+    "provider": "gutenberg",
+    "gutenberg_id": 4217,
+    "title": "Kidnapped",
+    "author": "Robert Louis Stevenson",
+    "description": "Project Gutenberg #4217 — Kidnapped",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/4217",
+    "raw_url": "https://www.gutenberg.org/ebooks/4217.txt.utf-8",
+    "asset_file": "4217.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_514",
+    "provider": "gutenberg",
+    "gutenberg_id": 514,
+    "title": "Little Women",
+    "author": "Louisa May Alcott",
+    "description": "Project Gutenberg #514 — Little Women",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/514",
+    "raw_url": "https://www.gutenberg.org/ebooks/514.txt.utf-8",
+    "asset_file": "514.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_2782",
+    "provider": "gutenberg",
+    "gutenberg_id": 2782,
+    "title": "Little Men",
+    "author": "Louisa May Alcott",
+    "description": "Project Gutenberg #2782 — Little Men",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2782",
+    "raw_url": "https://www.gutenberg.org/ebooks/2782.txt.utf-8",
+    "asset_file": "2782.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_37106",
+    "provider": "gutenberg",
+    "gutenberg_id": 37106,
+    "title": "Anne of Green Gables",
+    "author": "L. M. Montgomery",
+    "description": "Project Gutenberg #37106 — Anne of Green Gables",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/37106",
+    "raw_url": "https://www.gutenberg.org/ebooks/37106.txt.utf-8",
+    "asset_file": "37106.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_47",
+    "provider": "gutenberg",
+    "gutenberg_id": 47,
+    "title": "Anne of Avonlea",
+    "author": "L. M. Montgomery",
+    "description": "Project Gutenberg #47 — Anne of Avonlea",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/47",
+    "raw_url": "https://www.gutenberg.org/ebooks/47.txt.utf-8",
+    "asset_file": "47.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_289",
+    "provider": "gutenberg",
+    "gutenberg_id": 289,
+    "title": "The Secret Garden",
+    "author": "Frances Hodgson Burnett",
+    "description": "Project Gutenberg #289 — The Secret Garden",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/289",
+    "raw_url": "https://www.gutenberg.org/ebooks/289.txt.utf-8",
+    "asset_file": "289.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_113",
+    "provider": "gutenberg",
+    "gutenberg_id": 113,
+    "title": "The Secret Garden (alt)",
+    "author": "Frances Hodgson Burnett",
+    "description": "Project Gutenberg #113 — The Secret Garden (alt)",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/113",
+    "raw_url": "https://www.gutenberg.org/ebooks/113.txt.utf-8",
+    "asset_file": "113.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_27761",
+    "provider": "gutenberg",
+    "gutenberg_id": 27761,
+    "title": "A Little Princess",
+    "author": "Frances Hodgson Burnett",
+    "description": "Project Gutenberg #27761 — A Little Princess",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/27761",
+    "raw_url": "https://www.gutenberg.org/ebooks/27761.txt.utf-8",
+    "asset_file": "27761.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_145",
+    "provider": "gutenberg",
+    "gutenberg_id": 145,
+    "title": "Middlemarch",
+    "author": "George Eliot",
+    "description": "Project Gutenberg #145 — Middlemarch",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/145",
+    "raw_url": "https://www.gutenberg.org/ebooks/145.txt.utf-8",
+    "asset_file": "145.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_550",
+    "provider": "gutenberg",
+    "gutenberg_id": 550,
+    "title": "Silas Marner",
+    "author": "George Eliot",
+    "description": "Project Gutenberg #550 — Silas Marner",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/550",
+    "raw_url": "https://www.gutenberg.org/ebooks/550.txt.utf-8",
+    "asset_file": "550.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_215",
+    "provider": "gutenberg",
+    "gutenberg_id": 215,
+    "title": "The Call of the Wild",
+    "author": "Jack London",
+    "description": "Project Gutenberg #215 — The Call of the Wild",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/215",
+    "raw_url": "https://www.gutenberg.org/ebooks/215.txt.utf-8",
+    "asset_file": "215.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_910",
+    "provider": "gutenberg",
+    "gutenberg_id": 910,
+    "title": "White Fang",
+    "author": "Jack London",
+    "description": "Project Gutenberg #910 — White Fang",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/910",
+    "raw_url": "https://www.gutenberg.org/ebooks/910.txt.utf-8",
+    "asset_file": "910.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_219",
+    "provider": "gutenberg",
+    "gutenberg_id": 219,
+    "title": "Heart of Darkness",
+    "author": "Joseph Conrad",
+    "description": "Project Gutenberg #219 — Heart of Darkness",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/219",
+    "raw_url": "https://www.gutenberg.org/ebooks/219.txt.utf-8",
+    "asset_file": "219.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_974",
+    "provider": "gutenberg",
+    "gutenberg_id": 974,
+    "title": "The Secret Agent",
+    "author": "Joseph Conrad",
+    "description": "Project Gutenberg #974 — The Secret Agent",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/974",
+    "raw_url": "https://www.gutenberg.org/ebooks/974.txt.utf-8",
+    "asset_file": "974.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_2500",
+    "provider": "gutenberg",
+    "gutenberg_id": 2500,
+    "title": "Siddhartha",
+    "author": "Hermann Hesse",
+    "description": "Project Gutenberg #2500 — Siddhartha",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2500",
+    "raw_url": "https://www.gutenberg.org/ebooks/2500.txt.utf-8",
+    "asset_file": "2500.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_421",
+    "provider": "gutenberg",
+    "gutenberg_id": 421,
+    "title": "Kidnapped (alt)",
+    "author": "Robert Louis Stevenson",
+    "description": "Project Gutenberg #421 — Kidnapped (alt)",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/421",
+    "raw_url": "https://www.gutenberg.org/ebooks/421.txt.utf-8",
+    "asset_file": "421.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_829",
+    "provider": "gutenberg",
+    "gutenberg_id": 829,
+    "title": "Gulliver's Travels",
+    "author": "Jonathan Swift",
+    "description": "Project Gutenberg #829 — Gulliver's Travels",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/829",
+    "raw_url": "https://www.gutenberg.org/ebooks/829.txt.utf-8",
+    "asset_file": "829.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_3207",
+    "provider": "gutenberg",
+    "gutenberg_id": 3207,
+    "title": "Leviathan",
+    "author": "Thomas Hobbes",
+    "description": "Project Gutenberg #3207 — Leviathan",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/3207",
+    "raw_url": "https://www.gutenberg.org/ebooks/3207.txt.utf-8",
+    "asset_file": "3207.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "philosophy"
+    ]
+  },
+  {
+    "key": "pg_5827",
+    "provider": "gutenberg",
+    "gutenberg_id": 5827,
+    "title": "The Essays of Ralph Waldo Emerson",
+    "author": "Ralph Waldo Emerson",
+    "description": "Project Gutenberg #5827 — The Essays of Ralph Waldo Emerson",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/5827",
+    "raw_url": "https://www.gutenberg.org/ebooks/5827.txt.utf-8",
+    "asset_file": "5827.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "essay"
+    ]
+  },
+  {
+    "key": "pg_28",
+    "provider": "gutenberg",
+    "gutenberg_id": 28,
+    "title": "Aesop's Fables",
+    "author": "Aesop",
+    "description": "Project Gutenberg #28 — Aesop's Fables",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/28",
+    "raw_url": "https://www.gutenberg.org/ebooks/28.txt.utf-8",
+    "asset_file": "28.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "fable",
+      "children"
+    ]
+  },
+  {
+    "key": "pg_32",
+    "provider": "gutenberg",
+    "gutenberg_id": 32,
+    "title": "Herland",
+    "author": "Charlotte Perkins Gilman",
+    "description": "Project Gutenberg #32 — Herland",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/32",
+    "raw_url": "https://www.gutenberg.org/ebooks/32.txt.utf-8",
+    "asset_file": "32.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_41",
+    "provider": "gutenberg",
+    "gutenberg_id": 41,
+    "title": "The Legend of Sleepy Hollow",
+    "author": "Washington Irving",
+    "description": "Project Gutenberg #41 — The Legend of Sleepy Hollow",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/41",
+    "raw_url": "https://www.gutenberg.org/ebooks/41.txt.utf-8",
+    "asset_file": "41.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "short"
+    ]
+  },
+  {
+    "key": "pg_45",
+    "provider": "gutenberg",
+    "gutenberg_id": 45,
+    "title": "Anne of the Island",
+    "author": "L. M. Montgomery",
+    "description": "Project Gutenberg #45 — Anne of the Island",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/45",
+    "raw_url": "https://www.gutenberg.org/ebooks/45.txt.utf-8",
+    "asset_file": "45.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "classic"
+    ]
+  },
+  {
+    "key": "pg_64",
+    "provider": "gutenberg",
+    "gutenberg_id": 64,
+    "title": "The Scarlet Pimpernel",
+    "author": "Baroness Orczy",
+    "description": "Project Gutenberg #64 — The Scarlet Pimpernel",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/64",
+    "raw_url": "https://www.gutenberg.org/ebooks/64.txt.utf-8",
+    "asset_file": "64.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "adventure"
+    ]
+  },
+  {
+    "key": "pg_205",
+    "provider": "gutenberg",
+    "gutenberg_id": 205,
+    "title": "Walden",
+    "author": "Henry David Thoreau",
+    "description": "Project Gutenberg #205 — Walden",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/205",
+    "raw_url": "https://www.gutenberg.org/ebooks/205.txt.utf-8",
+    "asset_file": "205.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "essay"
+    ]
+  },
+  {
+    "key": "pg_25305",
+    "provider": "gutenberg",
+    "gutenberg_id": 25305,
+    "title": "The Interesting Narrative of the Life of Olaudah Equiano",
+    "author": "Olaudah Equiano",
+    "description": "Project Gutenberg #25305 — The Interesting Narrative of the Life of Olaudah Equiano",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/25305",
+    "raw_url": "https://www.gutenberg.org/ebooks/25305.txt.utf-8",
+    "asset_file": "25305.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "memoir"
+    ]
+  },
+  {
+    "key": "pg_100",
+    "provider": "gutenberg",
+    "gutenberg_id": 100,
+    "title": "Complete Works of Shakespeare",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #100 — Complete Works of Shakespeare",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/100",
+    "raw_url": "https://www.gutenberg.org/ebooks/100.txt.utf-8",
+    "asset_file": "100.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1513",
+    "provider": "gutenberg",
+    "gutenberg_id": 1513,
+    "title": "Romeo and Juliet",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1513 — Romeo and Juliet",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1513",
+    "raw_url": "https://www.gutenberg.org/ebooks/1513.txt.utf-8",
+    "asset_file": "1513.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1524",
+    "provider": "gutenberg",
+    "gutenberg_id": 1524,
+    "title": "Hamlet",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1524 — Hamlet",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1524",
+    "raw_url": "https://www.gutenberg.org/ebooks/1524.txt.utf-8",
+    "asset_file": "1524.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1533",
+    "provider": "gutenberg",
+    "gutenberg_id": 1533,
+    "title": "Macbeth",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1533 — Macbeth",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1533",
+    "raw_url": "https://www.gutenberg.org/ebooks/1533.txt.utf-8",
+    "asset_file": "1533.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_2265",
+    "provider": "gutenberg",
+    "gutenberg_id": 2265,
+    "title": "King Lear",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #2265 — King Lear",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2265",
+    "raw_url": "https://www.gutenberg.org/ebooks/2265.txt.utf-8",
+    "asset_file": "2265.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1112",
+    "provider": "gutenberg",
+    "gutenberg_id": 1112,
+    "title": "The Tempest",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1112 — The Tempest",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1112",
+    "raw_url": "https://www.gutenberg.org/ebooks/1112.txt.utf-8",
+    "asset_file": "1112.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_2267",
+    "provider": "gutenberg",
+    "gutenberg_id": 2267,
+    "title": "Othello",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #2267 — Othello",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2267",
+    "raw_url": "https://www.gutenberg.org/ebooks/2267.txt.utf-8",
+    "asset_file": "2267.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_2235",
+    "provider": "gutenberg",
+    "gutenberg_id": 2235,
+    "title": "A Midsummer Night's Dream",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #2235 — A Midsummer Night's Dream",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2235",
+    "raw_url": "https://www.gutenberg.org/ebooks/2235.txt.utf-8",
+    "asset_file": "2235.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_2243",
+    "provider": "gutenberg",
+    "gutenberg_id": 2243,
+    "title": "Julius Caesar",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #2243 — Julius Caesar",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2243",
+    "raw_url": "https://www.gutenberg.org/ebooks/2243.txt.utf-8",
+    "asset_file": "2243.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1522",
+    "provider": "gutenberg",
+    "gutenberg_id": 1522,
+    "title": "Much Ado About Nothing",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1522 — Much Ado About Nothing",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1522",
+    "raw_url": "https://www.gutenberg.org/ebooks/1522.txt.utf-8",
+    "asset_file": "1522.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_2264",
+    "provider": "gutenberg",
+    "gutenberg_id": 2264,
+    "title": "Twelfth Night",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #2264 — Twelfth Night",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/2264",
+    "raw_url": "https://www.gutenberg.org/ebooks/2264.txt.utf-8",
+    "asset_file": "2264.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1128",
+    "provider": "gutenberg",
+    "gutenberg_id": 1128,
+    "title": "Henry V",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1128 — Henry V",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1128",
+    "raw_url": "https://www.gutenberg.org/ebooks/1128.txt.utf-8",
+    "asset_file": "1128.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  },
+  {
+    "key": "pg_1129",
+    "provider": "gutenberg",
+    "gutenberg_id": 1129,
+    "title": "As You Like It",
+    "author": "William Shakespeare",
+    "description": "Project Gutenberg #1129 — As You Like It",
+    "language": "en",
+    "repo_url": "https://www.gutenberg.org/ebooks/1129",
+    "raw_url": "https://www.gutenberg.org/ebooks/1129.txt.utf-8",
+    "asset_file": "1129.txt",
+    "tags": [
+      "classic",
+      "gutenberg",
+      "drama"
+    ]
+  }
+]
