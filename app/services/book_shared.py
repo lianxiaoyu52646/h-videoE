@@ -144,7 +144,8 @@ def sync_paragraphs_from_document(session: Session, edition: models.BookEdition,
             session.add_all(rows)
             session.commit()
             created += len(rows)
-        edition.block_count = len(blocks)
+        # Preserve full-book count when the user doc is still sparsely materialized.
+        edition.block_count = max(int(edition.block_count or 0), len(blocks))
         session.add(edition)
         session.commit()
         refresh_edition_progress(session, edition.id)
@@ -188,6 +189,8 @@ def attach_edition_to_document(
     book_key: str,
     content_sha256: str,
     author: str = "",
+    sync_paragraphs: bool = True,
+    hydrate_blocks: int = 80,
 ) -> models.BookEdition:
     edition = get_or_create_edition(
         session,
@@ -198,14 +201,17 @@ def attach_edition_to_document(
         source_url=doc.source_url,
         block_count=doc.block_count or 0,
     )
-    sync_paragraphs_from_document(session, edition, doc.id)
+    # Full-book sync/hydrate on free Render often exceeds the proxy timeout → 502.
+    if sync_paragraphs and _existing_paragraph_count(session, edition.id) == 0:
+        sync_paragraphs_from_document(session, edition, doc.id)
     session.refresh(edition)
-    if (edition.translated_blocks or 0) > 0:
+    if (edition.translated_blocks or 0) > 0 and hydrate_blocks > 0:
+        last = max((doc.block_count or 1) - 1, 0)
         hydrate_document_range(
             session,
             doc.id,
             0,
-            max((doc.block_count or 1) - 1, 0),
+            min(hydrate_blocks - 1, last),
             edition_id=edition.id,
         )
     doc.book_key = book_key

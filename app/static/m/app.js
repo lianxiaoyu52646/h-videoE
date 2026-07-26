@@ -65,6 +65,38 @@
       .replace(/"/g, '&quot;');
   }
 
+  /** Real-time English TTS: Android bridge first, else Web Speech API. */
+  function speakWord(word) {
+    const w = String(word || '').trim();
+    if (!w) return;
+    try {
+      if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
+        window.AndroidDictionary.speak(w);
+        return;
+      }
+    } catch (_) { /* fall through */ }
+    if (!('speechSynthesis' in window)) {
+      toast('当前环境不支持朗读');
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(w);
+      u.lang = 'en-US';
+      u.rate = 0.9;
+      window.speechSynthesis.speak(u);
+    } catch (_) {
+      toast('朗读失败');
+    }
+  }
+
+  function speakBtnHtml(word, extraClass = '') {
+    const w = String(word || '').trim();
+    if (!w) return '';
+    const cls = extraClass ? `speak-btn ${extraClass}` : 'speak-btn';
+    return `<button type="button" class="${cls}" data-speak-word="${escapeHtml(w)}" aria-label="朗读 ${escapeHtml(w)}" title="朗读">🔊</button>`;
+  }
+
   function linkifyWords(text) {
     return String(text || '').replace(/([A-Za-z][A-Za-z'-]*)/g, (m) => {
       const clean = m.replace(/[^A-Za-z']/g, '');
@@ -452,8 +484,12 @@
     try {
       const data = await api(`/api/word-lookup/${encodeURIComponent(word)}`);
       const meaning = data.translation || data.youdao_translation || data.definition || '暂无释义';
+      const headWord = data.word || word;
       showModal(`
-        <h3>${escapeHtml(data.word || word)}</h3>
+        <h3 class="m-word-head">
+          <span>${escapeHtml(headWord)}</span>
+          ${speakBtnHtml(headWord, 'speak-btn-inline')}
+        </h3>
         <p class="m-muted">${escapeHtml(data.pronunciation || '')}</p>
         <p>${escapeHtml(meaning)}</p>
         <div class="binary-actions" style="margin-top:14px;">
@@ -461,6 +497,7 @@
           <button class="m-btn m-btn-danger" id="unknowWord" type="button">不会</button>
         </div>
         <button class="m-btn m-btn-ghost m-btn-block" style="margin-top:8px;" id="closeWord" type="button">关闭</button>`);
+      speakWord(headWord);
       $('#closeWord').onclick = closeModal;
       $('#knowWord').onclick = () => { closeModal(); toast('继续读～'); };
       $('#unknowWord').onclick = async () => {
@@ -638,15 +675,68 @@
           ${it.pronunciation ? `<div class="phon">${escapeHtml(it.pronunciation)}</div>` : ''}
           <div class="zh">${escapeHtml(it.translation || '')}</div>
         </div>
-        <button class="star-btn ${s.starred.has(it.id) ? 'on' : ''}" data-star="${it.id}" type="button" aria-label="不会">
-          ${s.starred.has(it.id) ? '★' : '☆'}
-        </button>
+        <div class="study-row-actions">
+          ${speakBtnHtml(it.word)}
+          <button class="star-btn ${s.starred.has(it.id) ? 'on' : ''}" data-star="${it.id}" type="button" aria-label="不会">
+            ${s.starred.has(it.id) ? '★' : '☆'}
+          </button>
+        </div>
       </div>`;
+  }
+
+  function setActiveStudyRow(offset, { scroll = false } = {}) {
+    const s = state.study;
+    if (!s) return;
+    const off = Number(offset);
+    if (!Number.isFinite(off)) return;
+    if (s.activeOffset === off && !scroll) {
+      // Still ensure a single DOM class if rows were re-rendered.
+      const current = $(`#studyList .study-row.is-active`);
+      if (current && Number(current.dataset.offset) === off) return;
+    }
+    s.activeOffset = off;
+    $$('#studyList .study-row.is-active').forEach((el) => el.classList.remove('is-active'));
+    const row = $(`#studyList .study-row[data-offset="${off}"]`);
+    if (row) {
+      row.classList.add('is-active');
+      if (scroll) {
+        const y = row.getBoundingClientRect().top + window.scrollY - 88;
+        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+      }
+    }
+  }
+
+  function syncActiveStudyRowFromScroll() {
+    const s = state.study;
+    if (!s) return;
+    if (s.manualSelectUntil && Date.now() < s.manualSelectUntil) return;
+    setActiveStudyRow(visibleStudyCursor());
+  }
+
+  function bindStudyRowSelection(scope) {
+    const s = state.study;
+    if (!s) return;
+    const root = scope || document;
+    $$('.study-row[data-offset]', root).forEach((row) => {
+      if (row.dataset.selectBound === '1') return;
+      row.dataset.selectBound = '1';
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.speak-btn, .star-btn, [data-speak-word], [data-star]')) return;
+        const off = Number(row.dataset.offset);
+        if (!Number.isFinite(off)) return;
+        s.manualSelectUntil = Date.now() + 900;
+        setActiveStudyRow(off, { scroll: true });
+        s.lastSavedCursor = off;
+        updateStudyProgressUi();
+        scheduleSaveStudyCursor();
+      });
+    });
   }
 
   function bindStudyStarButtons(scope) {
     const s = state.study;
     if (!s) return;
+    bindStudyRowSelection(scope);
     $$('[data-star]', scope || document).forEach((btn) => {
       if (btn.dataset.bound === '1') return;
       btn.dataset.bound = '1';
@@ -716,6 +806,7 @@
     wrap.innerHTML = items.map((it) => studyRowHtml(it, { animate: true })).join('');
     [...wrap.children].forEach((n) => list.appendChild(n));
     bindStudyStarButtons(list);
+    if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
   }
 
   function prependStudyRows(items) {
@@ -729,6 +820,7 @@
     [...wrap.children].forEach((n) => list.insertBefore(n, first));
     bindStudyStarButtons(list);
     window.scrollTo(0, y + (document.documentElement.scrollHeight - height));
+    if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
   }
 
   function applyStudyPage(data, mode) {
@@ -872,7 +964,13 @@
   async function saveStudyCursor(force = false) {
     const s = state.study;
     if (!s) return;
-    const cursor = visibleStudyCursor();
+    let cursor;
+    if (s.manualSelectUntil && Date.now() < s.manualSelectUntil && s.activeOffset != null) {
+      cursor = Number(s.activeOffset);
+    } else {
+      cursor = visibleStudyCursor();
+      setActiveStudyRow(cursor);
+    }
     if (!force && s.lastSavedCursor === cursor) return;
     s.lastSavedCursor = cursor;
     updateStudyProgressUi();
@@ -919,8 +1017,12 @@
     if (s.hasMoreBefore) watch($('#studySentinelTop'), 'before');
     if (s.hasMoreAfter) watch($('#studySentinelBottom'), 'after');
 
-    s.onScroll = () => scheduleSaveStudyCursor();
+    s.onScroll = () => {
+      syncActiveStudyRowFromScroll();
+      scheduleSaveStudyCursor();
+    };
     window.addEventListener('scroll', s.onScroll, { passive: true });
+    syncActiveStudyRowFromScroll();
   }
 
   function scrollToResumeWord() {
@@ -932,6 +1034,7 @@
     if (!row) return;
     const y = row.getBoundingClientRect().top + window.scrollY - 88;
     window.scrollTo(0, Math.max(0, y));
+    setActiveStudyRow(Number(row.dataset.offset ?? target));
   }
 
   function renderStudy(root) {
@@ -972,6 +1075,7 @@
     };
 
     bindStudyStarButtons(root);
+    if (s.resumeTarget != null) setActiveStudyRow(s.resumeTarget);
 
     requestAnimationFrame(() => {
       scrollToResumeWord();
@@ -1008,7 +1112,10 @@
         <h2>今日练习 ${due.length ? `(${due.length})` : ''}</h2>
         ${current ? `
           <div class="flash-card">
-            <div class="flash-word">${escapeHtml(current.word)}</div>
+            <div class="flash-word-row">
+              <div class="flash-word">${escapeHtml(current.word)}</div>
+              ${speakBtnHtml(current.word, 'speak-btn-lg')}
+            </div>
             <div class="flash-phonetic">${escapeHtml(current.pronunciation || '')}</div>
             <div class="flash-meaning">${escapeHtml(current.translation || current.definition || '')}</div>
           </div>
@@ -1027,10 +1134,14 @@
               <span class="m-muted">${escapeHtml(v.pronunciation || '')}</span>
               <span class="m-muted">${escapeHtml(v.translation || v.definition || '')}</span>
             </span>
-            <button class="m-btn m-btn-mint" data-know="${v.id}" type="button">会</button>
+            <span class="m-list-actions">
+              ${speakBtnHtml(v.word, 'speak-btn-sm')}
+              <button class="m-btn m-btn-mint" data-know="${v.id}" type="button">会</button>
+            </span>
           </div>`).join('') || '<p class="m-muted">生词本是空的</p>'}
       </div>`;
 
+    if (current?.word) speakWord(current.word);
     $('#reviewKnow')?.addEventListener('click', () => reviewOrRemove(true));
     $('#reviewUnknown')?.addEventListener('click', () => reviewOrRemove(false));
     $$('[data-know]').forEach((btn) => {
@@ -1165,8 +1276,8 @@
             <option value="">随机词典</option>
             ${books.map((b) => `<option value="${b.id}" ${state.pk.wordbookId == b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
           </select>
-          <button class="m-btn m-btn-primary m-btn-block" id="pkBot" type="button">VS 机器人</button>
-          <button class="m-btn m-btn-sky m-btn-block" id="pkCreate" type="button" style="margin-top:8px;">创建房间</button>
+          <button class="m-btn m-btn-primary m-btn-block" id="pkCreate" type="button">创建房间</button>
+          <p class="m-muted" style="margin:10px 0 0;font-size:0.88rem;">进房后可邀请机器人陪练，或分享房间码约好友。</p>
         </div>
         <div class="m-card">
           <h2>加入房间</h2>
@@ -1178,7 +1289,6 @@
     $('#pkBook')?.addEventListener('change', (e) => {
       state.pk.wordbookId = e.target.value ? Number(e.target.value) : null;
     });
-    $('#pkBot')?.addEventListener('click', () => startPk('bot'));
     $('#pkCreate')?.addEventListener('click', () => startPk('pvp'));
     $('#pkJoin')?.addEventListener('click', joinPk);
     $('#pkInviteBot')?.addEventListener('click', async () => {
@@ -1194,8 +1304,7 @@
     });
     $('#pkReady')?.addEventListener('click', () => {
       if (me?.ready) return toast('已准备');
-      ensurePkWs(room.code);
-      state.pk.ws?.send(JSON.stringify({ action: 'ready' }));
+      markPkReady(room.code);
     });
     $('#pkCopy')?.addEventListener('click', async () => {
       try {
@@ -1244,18 +1353,17 @@
     }, 2000);
   }
 
-  async function startPk(mode) {
+  async function startPk(mode = 'pvp') {
     try {
       const room = await api('/api/pk/rooms', {
         method: 'POST',
-        body: { mode, wordbook_id: state.pk.wordbookId || null },
+        body: { mode: mode === 'bot' ? 'bot' : 'pvp', wordbook_id: state.pk.wordbookId || null },
       });
       state.pk.room = room;
       connectPkWs(room.code);
       startPkPoll(room.code);
-      if (mode === 'bot') setTimeout(() => state.pk.ws?.send(JSON.stringify({ action: 'ready' })), 400);
       renderPk();
-      toast(mode === 'pvp' ? `房间 ${room.code}，分享给好友一起加入` : `房间 ${room.code}`);
+      toast(`房间 ${room.code}，可邀请机器人或分享给好友`);
     } catch (e) { toast(e.message); }
   }
 
@@ -1272,18 +1380,56 @@
     } catch (e) { toast(e.message); }
   }
 
+  async function markPkReady(code) {
+    ensurePkWs(code);
+    try {
+      // Prefer HTTP so ready works even if WS is still connecting (Render latency).
+      const room = await api('/api/pk/rooms/ready', {
+        method: 'POST',
+        body: { code, ready: true },
+      });
+      state.pk.room = room;
+      if (state.tab === 'pk') renderPk();
+    } catch (e) {
+      toast(e.message || '准备失败');
+    }
+    sendPkWs({ action: 'ready' });
+  }
+
   function ensurePkWs(code) {
-    if (state.pk.ws && state.pk.ws.readyState <= 1 && state.pk.room?.code === code) return;
+    const ws = state.pk.ws;
+    if (ws && state.pk.wsCode === code && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
     connectPkWs(code);
+  }
+
+  function sendPkWs(msg) {
+    const payload = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    const ws = state.pk.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(payload); } catch (_) {}
+      return;
+    }
+    if (!state.pk.wsQueue) state.pk.wsQueue = [];
+    state.pk.wsQueue.push(payload);
+    if (state.pk.room?.code) ensurePkWs(state.pk.room.code);
   }
 
   function connectPkWs(code) {
     try { state.pk.ws?.close(); } catch (_) {}
+    state.pk.wsCode = code;
+    state.pk.wsQueue = state.pk.wsQueue || [];
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/api/pk/ws/${encodeURIComponent(code)}`);
     state.pk.ws = ws;
     ws.onopen = () => {
+      const queued = state.pk.wsQueue || [];
+      state.pk.wsQueue = [];
       try { ws.send(JSON.stringify({ action: 'ping' })); } catch (_) {}
+      for (const item of queued) {
+        try { ws.send(item); } catch (_) {}
+      }
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data || '{}');
@@ -1301,6 +1447,7 @@
       if (state.tab === 'pk') renderPk();
     };
     ws.onclose = () => {
+      if (state.pk.ws === ws) state.pk.ws = null;
       if (state.pk.room?.code && state.pk.room.status !== 'finished') startPkPoll(state.pk.room.code);
     };
   }
@@ -1349,7 +1496,8 @@
               }
               return `<button type="button" class="${cls}" data-choice="${i}" ${feedback && feedback.index === q.index ? 'disabled' : ''}>
                 <span class="pk-opt-key">${String.fromCharCode(65 + i)}</span>
-                <span>${escapeHtml(opt)}</span>
+                <span class="pk-opt-text">${escapeHtml(opt)}</span>
+                ${speakBtnHtml(opt, 'speak-btn-sm pk-opt-speak')}
               </button>`;
             }).join('')}
           </div>
@@ -1359,10 +1507,11 @@
 
     $('#pkLeaveMid')?.addEventListener('click', leavePkRoom);
     $$('#pkOptions [data-choice]').forEach((btn) => {
-      btn.onclick = () => {
+      btn.onclick = (ev) => {
+        if (ev.target.closest('[data-speak-word]')) return;
         if (btn.disabled) return;
         state.pk.feedback = null;
-        state.pk.ws?.send(JSON.stringify({ action: 'answer', choice: Number(btn.dataset.choice) }));
+        sendPkWs({ action: 'answer', choice: Number(btn.dataset.choice) });
       };
     });
 
@@ -1410,7 +1559,10 @@
         ${missed.map((w) => `
           <div class="m-list-item">
             <span><strong>${escapeHtml(w.word)}</strong><span class="m-muted"> ${escapeHtml(w.translation || '')}</span></span>
-            <span class="m-chip">生词</span>
+            <span class="m-list-actions">
+              ${speakBtnHtml(w.word, 'speak-btn-sm')}
+              <span class="m-chip">生词</span>
+            </span>
           </div>`).join('')}</div>` : ''}
       <button class="m-btn m-btn-primary m-btn-block" id="pkAgain" type="button">再来一局</button>`;
     $('#pkAgain').onclick = () => {
@@ -1556,6 +1708,15 @@
 
   $('#userBtn').addEventListener('click', () => setTab('mine'));
   $$('#tabNav button').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
+
+  // Capture phase so speak works even inside PK option buttons.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-speak-word]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    speakWord(btn.dataset.speakWord);
+  }, true);
 
   async function boot() {
     applyEyecare();

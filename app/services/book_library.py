@@ -279,6 +279,9 @@ def _import_book_locked(
                             book_key=row.key,
                             content_sha256=sha,
                             author=row.author or "",
+                            # Never full-sync on open — large books exceed Render timeout.
+                            sync_paragraphs=False,
+                            hydrate_blocks=80,
                         )
                         session.refresh(existing)
                     except Exception:
@@ -287,6 +290,14 @@ def _import_book_locked(
                 try:
                     from app.services import book_shared
 
+                    from app.services.reading_materialize import ensure_reading_blocks_range
+
+                    ensure_reading_blocks_range(
+                        session,
+                        existing.id,
+                        0,
+                        min(79, (existing.block_count or 1) - 1),
+                    )
                     book_shared.hydrate_document_range(
                         session,
                         existing.id,
@@ -335,30 +346,25 @@ def _import_book_locked(
             row.last_error = None
             row.last_synced_at = row.last_synced_at or datetime.utcnow()
 
-    doc = crud.create_reading(
+    content_sha = row.cache_sha256 or _sha256_text(text)
+    from app.services.reading_materialize import create_library_reading
+
+    # Seed-only import: full-book ReadingBlock + BookParagraph inserts time out on
+    # Render free (proxy 502). Remaining paragraphs materialize on first read.
+    doc = create_library_reading(
         session,
         row.title,
         text,
-        source_type="gutenberg-book" if (row.provider == "gutenberg" or row.key.startswith("pg_")) else "github-book",
+        source_type="gutenberg-book"
+        if (row.provider == "gutenberg" or row.key.startswith("pg_"))
+        else "github-book",
         source_url=row.repo_url or row.raw_url,
         source_filename=f"{row.key}.txt",
+        book_key=row.key,
+        content_sha256=content_sha,
+        author=row.author or "",
         user_id=user_id,
     )
-    content_sha = row.cache_sha256 or _sha256_text(text)
-    try:
-        from app.services import book_shared
-
-        book_shared.attach_edition_to_document(
-            session,
-            doc,
-            book_key=row.key,
-            content_sha256=content_sha,
-            author=row.author or "",
-        )
-        session.refresh(doc)
-    except Exception:
-        logger = __import__("logging").getLogger(__name__)
-        logger.exception("attach shared book edition failed for %s", row.key)
     row.reading_document_id = doc.id
     row.imported_at = datetime.utcnow()
     row.updated_at = datetime.utcnow()

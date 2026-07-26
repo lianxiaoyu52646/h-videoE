@@ -54,8 +54,17 @@
   });
 
   function speak(text) {
+    const w = String(text || '').trim();
+    if (!w) return;
+    try {
+      if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
+        window.AndroidDictionary.speak(w);
+        return;
+      }
+    } catch (_) { /* fall through */ }
     if ('speechSynthesis' in window) {
-      const utter = new SpeechSynthesisUtterance(text);
+      speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(w);
       utter.lang = 'en-US';
       utter.rate = 0.8;
       speechSynthesis.speak(utter);

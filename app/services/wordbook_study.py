@@ -44,12 +44,13 @@ def _sql_entry_count(session: Session, wordbook_id: int) -> int:
 
 
 def _total_entries(session: Session, wordbook_id: int) -> int:
-    asset = _json_asset_for_wordbook(session, wordbook_id)
-    if asset:
-        return len(wordbook_json_store.load_entries(asset))
+    """Prefer catalog/manifest counts — never parse multi‑MB JSON just to count."""
     cat = _catalog_for_wordbook(session, wordbook_id)
     if cat and cat.entry_count:
         return int(cat.entry_count)
+    asset = _json_asset_for_wordbook(session, wordbook_id)
+    if asset:
+        return int(wordbook_json_store.entry_count(asset) or 0)
     return _sql_entry_count(session, wordbook_id)
 
 
@@ -385,7 +386,17 @@ def save_cursor(
     session.add(memory)
     session.commit()
     session.refresh(memory)
-    return {"ok": True, "progress": progress_payload(session, memory)}
+    # Reuse known total — avoid a second catalog/JSON count on the hot path.
+    payload = progress_payload(session, memory)
+    if int(payload.get("total") or 0) != total:
+        cursor_n = int(payload.get("cursor") or 0)
+        marked = int(payload.get("learned") or 0) + int(payload.get("unknown") or 0)
+        display_pos = min(total, max(cursor_n + 1, marked)) if total and (cursor_n or marked) else 0
+        payload["total"] = total
+        payload["percent"] = round((display_pos / total) * 100, 1) if total else 0.0
+        payload["label"] = f"{display_pos} / {total}"
+        payload["completed"] = bool(total and cursor_n >= total - 1 and display_pos >= total)
+    return {"ok": True, "progress": payload}
 
 
 def _resolve_entry(
@@ -402,10 +413,9 @@ def _resolve_entry(
     asset = _json_asset_for_wordbook(session, wordbook_id)
     if not asset:
         return None
-    entries = wordbook_json_store.load_entries(asset)
-    if offset < 0 or offset >= len(entries):
+    raw = wordbook_json_store.entry_at(asset, offset)
+    if not raw:
         return None
-    raw = entries[offset]
     return _ensure_sparse_entry(
         session,
         wordbook_id,

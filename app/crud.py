@@ -693,6 +693,12 @@ def get_reading_chapter_blocks_page(
     if start_index > chapter.end_block:
         return chapter, [], total
     end_index = min(chapter.end_block, start_index + safe_limit - 1)
+    try:
+        from app.services.reading_materialize import ensure_reading_blocks_range
+
+        ensure_reading_blocks_range(session, doc_id, start_index, end_index)
+    except Exception:
+        pass
     items = session.exec(
         select(models.ReadingBlock)
         .where(
@@ -754,6 +760,12 @@ def get_reading_blocks_in_range(
     start_block: int,
     end_block: int,
 ) -> list[models.ReadingBlock]:
+    try:
+        from app.services.reading_materialize import ensure_reading_blocks_range
+
+        ensure_reading_blocks_range(session, doc_id, start_block, end_block)
+    except Exception:
+        pass
     return session.exec(
         select(models.ReadingBlock)
         .where(

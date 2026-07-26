@@ -1727,9 +1727,18 @@ async function translateSelection(text) {
 }
 
 function speakText(text, onEnd) {
+  const w = String(text || '').trim();
+  if (!w) return;
+  try {
+    if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
+      window.AndroidDictionary.speak(w);
+      if (onEnd) setTimeout(onEnd, Math.max(600, w.split(/\s+/).length * 320));
+      return;
+    }
+  } catch (_) { /* fall through */ }
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  const u = new SpeechSynthesisUtterance(w);
   u.lang = 'en-US';
   u.rate = 0.9;
   if (onEnd) u.onend = onEnd;

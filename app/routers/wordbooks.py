@@ -143,6 +143,8 @@ def study_cursor(
         return wordbook_study.save_cursor(session, wordbook_id, body.cursor)
     except KeyError:
         raise HTTPException(status_code=404, detail="词书不存在")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"保存进度失败：{e}") from e
 
 
 @router.post("/{wordbook_id}/study-star")

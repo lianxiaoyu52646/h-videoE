@@ -55,6 +55,23 @@ def test_invite_bot_and_leave(client, monkeypatch):
     assert left.json()["dissolved"] is True
 
 
+def test_http_ready_starts_with_bot(client, monkeypatch):
+    monkeypatch.setattr("app.config.settings.app_mode", "web")
+    monkeypatch.setattr("app.config.settings.local_auto_user", False)
+    monkeypatch.setattr("app.config.settings.auto_install_wordbooks", False)
+
+    client.post("/api/auth/register", json={"username": "pk_ready_http", "password": "secret12"})
+    created = client.post("/api/pk/rooms", json={"mode": "pvp"})
+    code = created.json()["code"]
+    assert client.post("/api/pk/rooms/invite-bot", json={"code": code}).status_code == 200
+    ready = client.post("/api/pk/rooms/ready", json={"code": code, "ready": True})
+    assert ready.status_code == 200, ready.text
+    body = ready.json()
+    assert body["status"] == "playing"
+    me = next(p for p in body["players"] if not p["is_bot"])
+    assert me["ready"] is True
+
+
 def test_independent_answers_do_not_block(client, monkeypatch):
     monkeypatch.setattr("app.config.settings.app_mode", "web")
     monkeypatch.setattr("app.config.settings.local_auto_user", False)

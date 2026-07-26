@@ -447,9 +447,17 @@ jumpPageInput?.addEventListener('keydown', (event) => {
 });
 
 function speakWord(word) {
+  const w = String(word || '').trim();
+  if (!w) return;
+  try {
+    if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
+      window.AndroidDictionary.speak(w);
+      return;
+    }
+  } catch (_) { /* fall through */ }
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(word);
+  const utterance = new SpeechSynthesisUtterance(w);
   utterance.lang = 'en-US';
   utterance.rate = 0.9;
   window.speechSynthesis.speak(utterance);

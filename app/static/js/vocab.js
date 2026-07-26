@@ -180,8 +180,17 @@ async function loadRecommendations() {
 }
 
 function speakWord(word) {
+  const w = String(word || '').trim();
+  if (!w) return;
+  try {
+    if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
+      window.AndroidDictionary.speak(w);
+      return;
+    }
+  } catch (_) { /* fall through */ }
   if ('speechSynthesis' in window) {
-    const u = new SpeechSynthesisUtterance(word);
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(w);
     u.lang = 'en-US';
     u.rate = 0.85;
     speechSynthesis.speak(u);
@@ -224,7 +233,10 @@ function renderReview() {
   reviewArea.innerHTML = `
     <div class="review-card">
       <div class="review-progress">${progress}</div>
-      <div class="word-big">${escapeHtml(card.word)}</div>
+      <div class="word-big" style="display:flex;align-items:center;justify-content:center;gap:12px;">
+        <span>${escapeHtml(card.word)}</span>
+        <button type="button" class="tts-btn" id="speakReviewWord" aria-label="朗读" title="朗读">🔊</button>
+      </div>
       <div class="word-phonetic-big">${escapeHtml(card.pronunciation || '')}</div>
       <div class="word-def-big">${escapeHtml(card.definition || '')}</div>
       ${card.translation ? `<div class="word-def-big" style="color:var(--accent)">${escapeHtml(card.translation)}</div>` : ''}
@@ -234,6 +246,7 @@ function renderReview() {
       </div>
     </div>
   `;
+  document.getElementById('speakReviewWord')?.addEventListener('click', () => speakWord(card.word));
   reviewArea.querySelectorAll('.review-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const rating = parseInt(btn.dataset.rating);

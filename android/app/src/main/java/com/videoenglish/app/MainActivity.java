@@ -61,7 +61,11 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.loadUrl("file:///android_asset/index.html");
+        // load url from local server
+        // webView.loadUrl("file:///android_asset/index.html");
+        // load url from remote server
+        webView.loadUrl("https://wordpop-xyh7.onrender.com/app");
+
         
         tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
             @Override

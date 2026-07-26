@@ -13,7 +13,7 @@ router = APIRouter(tags=["pk"])
 
 
 class CreateRoomRequest(BaseModel):
-    mode: str = Field(default="bot", pattern="^(bot|pvp)$")
+    mode: str = Field(default="pvp", pattern="^(bot|pvp)$")
     wordbook_id: int | None = None
 
 
@@ -23,6 +23,11 @@ class JoinRoomRequest(BaseModel):
 
 class RoomCodeRequest(BaseModel):
     code: str
+
+
+class ReadyRoomRequest(BaseModel):
+    code: str
+    ready: bool = True
 
 
 def _user_label(user: models.User) -> str:
@@ -79,6 +84,23 @@ async def invite_bot_to_room(
         room = await pk_rooms.invite_bot(room, user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return pk_rooms.public_state(room, for_user=user.id)
+
+
+@router.post("/api/pk/rooms/ready")
+async def ready_pk_room(
+    body: ReadyRoomRequest,
+    user: models.User = Depends(security.get_current_user),
+):
+    """HTTP ready — avoids lost WS messages while the socket is still connecting."""
+    room = pk_rooms.get_room(body.code)
+    if not room:
+        raise HTTPException(status_code=404, detail="房间不存在或已过期")
+    try:
+        await pk_rooms.set_ready(room, user.id, bool(body.ready))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    room = pk_rooms.get_room(body.code) or room
     return pk_rooms.public_state(room, for_user=user.id)
 
 

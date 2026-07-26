@@ -118,6 +118,12 @@ def get_blocks_page(
     key = _blocks_key(doc_id, offset, limit)
     page = _cache.get(key)
     if page is None:
+        try:
+            from app.services.reading_materialize import ensure_reading_blocks_range
+
+            ensure_reading_blocks_range(session, doc_id, offset, offset + limit - 1)
+        except Exception:
+            pass
         page = crud.get_reading_blocks_page(session, doc_id, offset, limit)
         _cache.set(key, page)
     return total, page
