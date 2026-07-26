@@ -164,6 +164,116 @@
     return `<button type="button" ${attrs}>🔊</button>`;
   }
 
+  const WEB_VER_KEY = 'wp_web_content_version';
+  let cachedAppVersion = null;
+
+  function localWebVersion() {
+    try { return localStorage.getItem(WEB_VER_KEY) || ''; } catch (_) { return ''; }
+  }
+
+  function rememberWebVersion(ver) {
+    try { if (ver) localStorage.setItem(WEB_VER_KEY, String(ver)); } catch (_) {}
+  }
+
+  function nativeApkMeta() {
+    try {
+      const bridge = window.AndroidDictionary;
+      if (!bridge) return { code: 0, name: '', isApp: false };
+      const code = typeof bridge.getVersionCode === 'function' ? Number(bridge.getVersionCode()) || 0 : 0;
+      const name = typeof bridge.getVersionName === 'function' ? String(bridge.getVersionName() || '') : '';
+      return { code, name, isApp: true };
+    } catch (_) {
+      return { code: 0, name: '', isApp: false };
+    }
+  }
+
+  async function fetchAppVersion() {
+    cachedAppVersion = await api('/api/app-version');
+    // First visit: baseline so we don't nag until the next deploy.
+    if (!localWebVersion() && cachedAppVersion?.web_content_version) {
+      rememberWebVersion(cachedAppVersion.web_content_version);
+    }
+    return cachedAppVersion;
+  }
+
+  function applyWebPatch() {
+    const ver = cachedAppVersion?.web_content_version || '';
+    rememberWebVersion(ver);
+    toast('正在更新内容…');
+    try {
+      const bridge = window.AndroidDictionary;
+      if (bridge && typeof bridge.clearCacheAndReload === 'function') {
+        bridge.clearCacheAndReload();
+        return;
+      }
+    } catch (_) {}
+    const url = new URL(location.href);
+    url.searchParams.set('_v', ver || String(Date.now()));
+    location.replace(url.toString());
+  }
+
+  function applyApkPatch(url) {
+    const u = String(url || '').trim();
+    if (!u) {
+      toast('暂无安装包地址，请联系开发者');
+      return;
+    }
+    try {
+      const bridge = window.AndroidDictionary;
+      if (bridge && typeof bridge.installApkFromUrl === 'function') {
+        toast('正在下载安装包…');
+        bridge.installApkFromUrl(u);
+        return;
+      }
+    } catch (_) {}
+    // Browser / no bridge: open download link
+    window.open(u, '_blank');
+  }
+
+  async function checkForUpdate({ silent = false } = {}) {
+    try {
+      if (!silent) toast('正在检测…');
+      const remote = await fetchAppVersion();
+      const localWeb = localWebVersion();
+      const webNewer = !!remote.web_content_version && remote.web_content_version !== localWeb;
+      const apk = nativeApkMeta();
+      const apkNewer =
+        apk.isApp &&
+        Number(remote.android_version_code || 0) > Number(apk.code || 0) &&
+        !!String(remote.android_apk_url || '').trim();
+
+      if (!webNewer && !apkNewer) {
+        if (!silent) toast('已是最新版本');
+        if (state.tab === 'mine') renderMine();
+        return { webNewer, apkNewer, remote };
+      }
+
+      const kind = apkNewer ? (webNewer ? '网页与安装包' : '安装包') : '网页内容';
+      const notes = remote.notes ? `<p class="m-muted">${escapeHtml(remote.notes)}</p>` : '';
+      showModal(`
+        <h3>发现新版本</h3>
+        <p>有新的${kind}可更新。</p>
+        ${notes}
+        <p class="m-muted" style="font-size:0.82rem;">网页 ${escapeHtml(localWeb || '—')} → ${escapeHtml(remote.web_content_version || '—')}${
+          apk.isApp ? `<br/>App ${escapeHtml(apk.name || String(apk.code))} → ${escapeHtml(remote.android_version_name || '')}` : ''
+        }</p>
+        <div class="binary-actions" style="margin-top:14px;">
+          <button class="m-btn m-btn-ghost" id="updLater" type="button">稍后再说</button>
+          <button class="m-btn m-btn-primary" id="updNow" type="button">立即更新</button>
+        </div>`);
+      $('#updLater').onclick = () => closeModal();
+      $('#updNow').onclick = () => {
+        closeModal();
+        if (apkNewer) applyApkPatch(remote.android_apk_url);
+        else applyWebPatch();
+      };
+      return { webNewer, apkNewer, remote };
+    } catch (e) {
+      if (!silent) toast(e.message || '检测失败');
+      return null;
+    }
+  }
+
   function linkifyWords(text) {
     return String(text || '').replace(/([A-Za-z][A-Za-z'-]*)/g, (m) => {
       const clean = m.replace(/[^A-Za-z']/g, '');
@@ -1730,6 +1840,12 @@
       ? `<div class="m-muted" style="margin-top:6px;">断点：${escapeHtml(prog.current_title || cp.current_book_key || '')}${cp.current_order_index ? ` · 段 ${cp.current_order_index}` : ''}</div>`
       : '';
     const cta = running ? '翻译进行中…' : (bt.loading ? '启动中…' : (resumable ? '继续翻译' : '开始自动翻译'));
+    const apk = nativeApkMeta();
+    const ver = cachedAppVersion;
+    const webLabel = localWebVersion() || ver?.web_content_version || '—';
+    const apkLabel = apk.isApp
+      ? `${apk.name || '1.0.0'} (${apk.code || 0})`
+      : '网页版';
 
     $('#view-mine').innerHTML = `
       <div class="m-hero"><h1>我的</h1><p>账号与阅读偏好</p></div>
@@ -1741,6 +1857,12 @@
             <p class="m-muted" style="margin:4px 0 0;">已登录 · 单词泡泡学员</p>
           </div>
         </div>
+      </div>
+      <div class="m-card">
+        <h2 style="margin:0 0 6px;">版本更新</h2>
+        <p class="m-muted" style="margin:0 0 10px;">网页补丁自动下发；原生壳有新包时再安装。</p>
+        <p class="m-muted" style="margin:0 0 12px;font-size:0.82rem;">当前网页 ${escapeHtml(webLabel)} · App ${escapeHtml(apkLabel)}</p>
+        <button class="m-btn m-btn-primary m-btn-block" id="checkUpdateBtn" type="button">检测最新版本</button>
       </div>
       <div class="m-card book-translate-card">
         <h2 style="margin:0 0 6px;">经典书库翻译</h2>
@@ -1770,6 +1892,7 @@
       await api('/api/auth/logout', { method: 'POST' });
       location.href = '/login?next=/app';
     });
+    $('#checkUpdateBtn')?.addEventListener('click', () => checkForUpdate());
     $('#scanBooksBtn')?.addEventListener('click', async () => {
       try {
         toast('扫描中…');
@@ -1799,6 +1922,7 @@
     try {
       await Promise.all([loadReadings(), loadBooks(), loadVocab()]);
     } catch (e) { console.warn(e); }
+    fetchAppVersion().catch(() => {});
     refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
     setTab('read');
   }

@@ -197,6 +197,7 @@ def is_public_api_path(path: str) -> bool:
     if path in {
         "/api/health",
         "/api/app-shell",
+        "/api/app-version",
         "/api/auth/login",
         "/api/auth/register",
     }:

@@ -94,7 +94,10 @@ def _static_page(name: str) -> FileResponse:
 
 
 def _mobile_app() -> FileResponse:
-    return FileResponse(settings.static_dir / "m" / "index.html")
+    resp = FileResponse(settings.static_dir / "m" / "index.html")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.get("/")
@@ -178,6 +181,43 @@ def app_shell():
         mobile_home=not settings.desktop_mode,
         features=["reading", "wordbooks", "vocab", "pk"],
     )
+
+
+def _load_app_version() -> schemas.AppVersionRead:
+    """Prefer static/m/app-version.json; env vars override APK URL / force flag."""
+    import json
+    import os
+
+    data = {
+        "web_content_version": "0",
+        "android_version_code": 1,
+        "android_version_name": "1.0.0",
+        "android_apk_url": "",
+        "notes": "",
+        "force_apk": False,
+    }
+    path = settings.static_dir / "m" / "app-version.json"
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data.update({k: raw[k] for k in data if k in raw})
+        except Exception:
+            pass
+    env_url = (os.getenv("ANDROID_APK_URL") or "").strip()
+    if env_url:
+        data["android_apk_url"] = env_url
+    env_web = (os.getenv("WEB_CONTENT_VERSION") or "").strip()
+    if env_web:
+        data["web_content_version"] = env_web
+    if (os.getenv("ANDROID_FORCE_UPDATE") or "").strip().lower() in {"1", "true", "yes"}:
+        data["force_apk"] = True
+    return schemas.AppVersionRead(**data)
+
+
+@app.get("/api/app-version", response_model=schemas.AppVersionRead)
+def app_version():
+    return _load_app_version()
 
 
 app.include_router(auth.router)

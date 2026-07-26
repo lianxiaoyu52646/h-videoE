@@ -139,6 +139,16 @@ class AppShellRead(BaseModel):
     features: list[str] = []
 
 
+class AppVersionRead(BaseModel):
+    """Client update check: web content vs native APK shell."""
+    web_content_version: str
+    android_version_code: int = 1
+    android_version_name: str = "1.0.0"
+    android_apk_url: str = ""
+    notes: str = ""
+    force_apk: bool = False
+
+
 class WordRead(BaseModel):
     word: str
     lemma: Optional[str] = None

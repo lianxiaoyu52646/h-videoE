@@ -1,6 +1,11 @@
 package com.videoenglish.app;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.view.KeyEvent;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -8,10 +13,20 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.util.Log;
 import android.speech.tts.TextToSpeech;
-import java.util.Locale;
+import android.widget.Toast;
+
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
 import com.google.mlkit.nl.translate.Translation;
 import com.google.mlkit.nl.translate.Translator;
@@ -22,6 +37,9 @@ import com.google.android.gms.tasks.OnFailureListener;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG = "MainActivity";
+    private static final String APP_ENTRY_URL = "https://wordpop-xyh7.onrender.com/app";
+
     private WebView webView;
     private DictionaryDatabaseHelper dbHelper;
     private TextToSpeech tts;
@@ -31,6 +49,9 @@ public class MainActivity extends AppCompatActivity {
     private final java.util.ArrayDeque<String> pendingSpeak = new java.util.ArrayDeque<>();
     private Translator enToZhTranslator;
     private boolean translatorReady = false;
+    private final ExecutorService bg = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean apkDownloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -38,7 +59,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         dbHelper = new DictionaryDatabaseHelper(this);
-        Log.d("MainActivity", "Dictionary ready: " + dbHelper.isReady() + ", word count: " + dbHelper.getWordCount());
+        Log.d(TAG, "Dictionary ready: " + dbHelper.isReady() + ", word count: " + dbHelper.getWordCount());
 
         initTranslator();
 
@@ -54,7 +75,6 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setUseWideViewPort(true);
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(false);
-        // Allow Audio() TTS fallback after a user tap in WebView.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1) {
             webSettings.setMediaPlaybackRequiresUserGesture(false);
         }
@@ -69,12 +89,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // load url from local server
-        // webView.loadUrl("file:///android_asset/index.html");
-        // load url from remote server
-        webView.loadUrl("https://wordpop-xyh7.onrender.com/app");
+        webView.loadUrl(APP_ENTRY_URL);
 
-        
         tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
             @Override
             public void onInit(int status) {
@@ -87,16 +103,16 @@ public class MainActivity extends AppCompatActivity {
                     if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                         ttsReady = false;
                         pendingSpeak.clear();
-                        Log.e("MainActivity", "English TTS not supported");
+                        Log.e(TAG, "English TTS not supported");
                     } else {
                         ttsReady = true;
-                        Log.d("MainActivity", "TTS initialized successfully");
+                        Log.d(TAG, "TTS initialized successfully");
                         flushPendingSpeak();
                     }
                 } else {
                     ttsReady = false;
                     pendingSpeak.clear();
-                    Log.e("MainActivity", "TTS initialization failed");
+                    Log.e(TAG, "TTS initialization failed");
                 }
             }
         });
@@ -119,11 +135,140 @@ public class MainActivity extends AppCompatActivity {
                 while (!pendingSpeak.isEmpty()) {
                     String next = pendingSpeak.pollFirst();
                     if (next != null && !next.isEmpty()) {
-                        // Keep only the latest request sounding natural.
                         if (pendingSpeak.isEmpty()) {
                             speakNow(next);
                         }
                     }
+                }
+            }
+        });
+    }
+
+    private void toastOnUi(final String msg) {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void clearCacheAndReloadInternal() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    webView.clearCache(true);
+                    webView.clearHistory();
+                } catch (Exception e) {
+                    Log.w(TAG, "clearCache failed: " + e.getMessage());
+                }
+                String url = APP_ENTRY_URL + (APP_ENTRY_URL.contains("?") ? "&" : "?") + "_=" + System.currentTimeMillis();
+                webView.loadUrl(url);
+            }
+        });
+    }
+
+    private boolean canInstallPackages() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
+            return true;
+        }
+        return getPackageManager().canRequestPackageInstalls();
+    }
+
+    private void openUnknownSourcesSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            Intent intent = new Intent(Settings.ACTION_SECURITY_SETTINGS);
+            startActivity(intent);
+        }
+    }
+
+    private void installLocalApk(File apk) {
+        if (apk == null || !apk.exists()) {
+            toastOnUi("安装包不存在");
+            return;
+        }
+        if (!canInstallPackages()) {
+            toastOnUi("请先允许安装未知应用，然后再次点击更新");
+            openUnknownSourcesSettings();
+            return;
+        }
+        try {
+            Uri uri = FileProvider.getUriForFile(
+                    this,
+                    getPackageName() + ".fileprovider",
+                    apk
+            );
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/vnd.android.package-archive");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e(TAG, "install apk failed", e);
+            toastOnUi("无法打开安装页面");
+        }
+    }
+
+    private void downloadAndInstallApk(final String apkUrl) {
+        if (apkUrl == null || apkUrl.trim().isEmpty()) {
+            toastOnUi("没有安装包地址");
+            return;
+        }
+        if (apkDownloading) {
+            toastOnUi("正在下载，请稍候");
+            return;
+        }
+        apkDownloading = true;
+        toastOnUi("正在下载更新…");
+        bg.execute(new Runnable() {
+            @Override
+            public void run() {
+                final File out = new File(getCacheDir(), "wordpop-update.apk");
+                HttpURLConnection conn = null;
+                try {
+                    if (out.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        out.delete();
+                    }
+                    URL url = new URL(apkUrl.trim());
+                    conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(20000);
+                    conn.setReadTimeout(60000);
+                    conn.setInstanceFollowRedirects(true);
+                    conn.connect();
+                    int code = conn.getResponseCode();
+                    if (code < 200 || code >= 300) {
+                        throw new IOException("HTTP " + code);
+                    }
+                    InputStream in = conn.getInputStream();
+                    FileOutputStream fos = new FileOutputStream(out);
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) >= 0) {
+                        fos.write(buf, 0, n);
+                    }
+                    fos.flush();
+                    fos.close();
+                    in.close();
+                    mainHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            apkDownloading = false;
+                            toastOnUi("下载完成，请确认安装");
+                            installLocalApk(out);
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.e(TAG, "download apk failed", e);
+                    apkDownloading = false;
+                    toastOnUi("下载失败，请检查网络");
+                } finally {
+                    if (conn != null) conn.disconnect();
                 }
             }
         });
@@ -141,14 +286,14 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onSuccess(Void aVoid) {
                         translatorReady = true;
-                        Log.d("MainActivity", "ML Kit translator ready");
+                        Log.d(TAG, "ML Kit translator ready");
                         notifyTranslatorReady();
                     }
                 })
                 .addOnFailureListener(new OnFailureListener() {
                     @Override
                     public void onFailure(Exception e) {
-                        Log.e("MainActivity", "ML Kit translator download failed: " + e.getMessage());
+                        Log.e(TAG, "ML Kit translator download failed: " + e.getMessage());
                     }
                 });
     }
@@ -174,6 +319,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        bg.shutdownNow();
         if (dbHelper != null) {
             dbHelper.closeDatabase();
         }
@@ -190,8 +336,7 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public String lookupWord(String word) {
-            String result = dbHelper.lookupWord(word);
-            return result;
+            return dbHelper.lookupWord(word);
         }
 
         @JavascriptInterface
@@ -208,7 +353,27 @@ public class MainActivity extends AppCompatActivity {
         public int getWordCount() {
             return dbHelper.getWordCount();
         }
-        
+
+        @JavascriptInterface
+        public int getVersionCode() {
+            return BuildConfig.VERSION_CODE;
+        }
+
+        @JavascriptInterface
+        public String getVersionName() {
+            return BuildConfig.VERSION_NAME;
+        }
+
+        @JavascriptInterface
+        public void clearCacheAndReload() {
+            clearCacheAndReloadInternal();
+        }
+
+        @JavascriptInterface
+        public void installApkFromUrl(String url) {
+            downloadAndInstallApk(url);
+        }
+
         @JavascriptInterface
         public void speak(String word) {
             if (word == null || word.isEmpty()) return;
@@ -222,22 +387,18 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                     if (!ttsInitDone) {
-                        // Queue until TTS engine finishes init — do not drop the tap.
                         pendingSpeak.clear();
                         pendingSpeak.addLast(text);
                         Log.w("DictionaryBridge", "TTS not ready, queued speak: " + text);
                         return;
                     }
-                    // Init finished but engine unavailable — JS should fall through to audio.
                     Log.w("DictionaryBridge", "TTS unavailable, drop speak: " + text);
                 }
             });
         }
-        
+
         @JavascriptInterface
         public boolean isTtsAvailable() {
-            // true while still initializing (speak will queue) or when ready.
-            // false only after init failed — JS then uses audio fallback.
             return ttsReady || !ttsInitDone;
         }
 
