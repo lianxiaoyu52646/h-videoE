@@ -90,11 +90,17 @@
     }
   }
 
-  function speakBtnHtml(word, extraClass = '') {
+  function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {
     const w = String(word || '').trim();
     if (!w) return '';
     const cls = extraClass ? `speak-btn ${extraClass}` : 'speak-btn';
-    return `<button type="button" class="${cls}" data-speak-word="${escapeHtml(w)}" aria-label="朗读 ${escapeHtml(w)}" title="朗读">🔊</button>`;
+    const label = `朗读 ${escapeHtml(w)}`;
+    const attrs = `class="${cls}" data-speak-word="${escapeHtml(w)}" aria-label="${label}" title="朗读"`;
+    // Use <span> inside clickable rows — nested <button> breaks layout in browsers.
+    if (as === 'span') {
+      return `<span ${attrs} role="button" tabindex="0">🔊</span>`;
+    }
+    return `<button type="button" ${attrs}>🔊</button>`;
   }
 
   function linkifyWords(text) {
@@ -684,32 +690,34 @@
       </div>`;
   }
 
-  function setActiveStudyRow(offset, { scroll = false } = {}) {
+  function setActiveStudyRow(offset) {
     const s = state.study;
     if (!s) return;
     const off = Number(offset);
     if (!Number.isFinite(off)) return;
-    if (s.activeOffset === off && !scroll) {
-      // Still ensure a single DOM class if rows were re-rendered.
+    if (s.activeOffset === off) {
       const current = $(`#studyList .study-row.is-active`);
       if (current && Number(current.dataset.offset) === off) return;
     }
     s.activeOffset = off;
     $$('#studyList .study-row.is-active').forEach((el) => el.classList.remove('is-active'));
     const row = $(`#studyList .study-row[data-offset="${off}"]`);
-    if (row) {
-      row.classList.add('is-active');
-      if (scroll) {
-        const y = row.getBoundingClientRect().top + window.scrollY - 88;
-        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
-      }
-    }
+    if (row) row.classList.add('is-active');
   }
 
   function syncActiveStudyRowFromScroll() {
     const s = state.study;
     if (!s) return;
-    if (s.manualSelectUntil && Date.now() < s.manualSelectUntil) return;
+    // Click-selected row stays until the user actually scrolls away.
+    if (s.pinActiveOffset != null) {
+      const moved = Math.abs(window.scrollY - (s.pinScrollY ?? window.scrollY));
+      if (moved < 48) {
+        setActiveStudyRow(s.pinActiveOffset);
+        return;
+      }
+      s.pinActiveOffset = null;
+      s.pinScrollY = null;
+    }
     setActiveStudyRow(visibleStudyCursor());
   }
 
@@ -724,8 +732,10 @@
         if (e.target.closest('.speak-btn, .star-btn, [data-speak-word], [data-star]')) return;
         const off = Number(row.dataset.offset);
         if (!Number.isFinite(off)) return;
-        s.manualSelectUntil = Date.now() + 900;
-        setActiveStudyRow(off, { scroll: true });
+        // Select in place — do not scroll (was jumping to the next word).
+        s.pinActiveOffset = off;
+        s.pinScrollY = window.scrollY;
+        setActiveStudyRow(off);
         s.lastSavedCursor = off;
         updateStudyProgressUi();
         scheduleSaveStudyCursor();
@@ -965,8 +975,9 @@
     const s = state.study;
     if (!s) return;
     let cursor;
-    if (s.manualSelectUntil && Date.now() < s.manualSelectUntil && s.activeOffset != null) {
-      cursor = Number(s.activeOffset);
+    if (s.pinActiveOffset != null) {
+      cursor = Number(s.pinActiveOffset);
+      setActiveStudyRow(cursor);
     } else {
       cursor = visibleStudyCursor();
       setActiveStudyRow(cursor);
@@ -1494,11 +1505,12 @@
                 if (i === feedback.correct) cls = 'correct';
                 if (i === feedback.choice && !feedback.is_correct) cls = 'wrong';
               }
-              return `<button type="button" class="${cls}" data-choice="${i}" ${feedback && feedback.index === q.index ? 'disabled' : ''}>
+              const locked = !!(feedback && feedback.index === q.index);
+              return `<div class="pk-option ${cls}" data-choice="${i}" role="button" tabindex="0"${locked ? ' aria-disabled="true"' : ''}>
                 <span class="pk-opt-key">${String.fromCharCode(65 + i)}</span>
                 <span class="pk-opt-text">${escapeHtml(opt)}</span>
-                ${speakBtnHtml(opt, 'speak-btn-sm pk-opt-speak')}
-              </button>`;
+                ${speakBtnHtml(opt, 'speak-btn-sm pk-opt-speak', { as: 'span' })}
+              </div>`;
             }).join('')}
           </div>
           <button class="m-btn m-btn-ghost m-btn-block" id="pkLeaveMid" type="button" style="margin-top:12px;">退出房间</button>
@@ -1506,12 +1518,12 @@
       `}`;
 
     $('#pkLeaveMid')?.addEventListener('click', leavePkRoom);
-    $$('#pkOptions [data-choice]').forEach((btn) => {
-      btn.onclick = (ev) => {
+    $$('#pkOptions [data-choice]').forEach((row) => {
+      row.onclick = (ev) => {
         if (ev.target.closest('[data-speak-word]')) return;
-        if (btn.disabled) return;
+        if (row.getAttribute('aria-disabled') === 'true') return;
         state.pk.feedback = null;
-        sendPkWs({ action: 'answer', choice: Number(btn.dataset.choice) });
+        sendPkWs({ action: 'answer', choice: Number(row.dataset.choice) });
       };
     });
 
