@@ -1626,11 +1626,12 @@
     bt.loading = true;
     renderMine();
     try {
+      // One book per slice + server auto-chain — avoids free-tier request kills.
       await api(
-        `/api/jobs/book-translate/backfill?full_run=true&ensure_catalog=true&batch_size=20&max_books=${Math.min(100, Math.max(pending, 1))}`,
+        '/api/jobs/book-translate/backfill?full_run=true&ensure_catalog=true&batch_size=15&max_books=1',
         { method: 'POST' },
       );
-      toast(bt.resumable ? '从断点继续翻译' : `开始翻译 ${pending} 本书`);
+      toast(bt.resumable ? '从断点继续翻译' : `开始翻译（共 ${pending} 本，逐本进行）`);
       await refreshBookTranslateStatus({ ensureCatalog: false });
       startBookTranslatePoll();
     } catch (e) {

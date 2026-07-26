@@ -135,21 +135,25 @@ async def _translate_edition_batches(
             for para, zh in zip(to_api, zh_list):
                 used += 1
                 zh = (zh or "").strip()
+                last_order = max(last_order, int(para.order_index or 0))
                 if not zh:
                     failed += 1
+                    book_shared.mark_paragraph_translate_failed(session, para)
                     continue
-                book_shared.upsert_paragraph_translation(
+                wrote = book_shared.upsert_paragraph_translation(
                     session,
                     para.edition_id,
                     para.order_index,
                     para.en_text,
                     zh,
                     source="job",
+                    force=False,
                 )
-                crud.save_translation_cache(session, para.en_text, zh)
-                translated += 1
-                orders.append(para.order_index)
-                last_order = max(last_order, int(para.order_index or 0))
+                if wrote:
+                    crud.save_translation_cache(session, para.en_text, zh)
+                    translated += 1
+                    orders.append(para.order_index)
+                # Existing ZH kept — still advance cursor past this paragraph.
 
             session.commit()
             if orders:
@@ -161,6 +165,7 @@ async def _translate_edition_batches(
         session.commit()
         session.refresh(edition)
 
+        # Durable cursor after every batch commit (edition_id + order_index).
         if on_batch:
             on_batch(edition, last_order, translated, failed)
 
@@ -253,6 +258,11 @@ async def run_backfill(
     remaining_budget = limit
     run_completed = False
     prefer_book_key: str | None = None
+    should_chain = False
+    # full_run without a single book_key: translate one book per slice.
+    if full_run and not book_key:
+        max_books = 1
+        batch_size = min(int(batch_size or 20), 15)
 
     def _pct(finished: int, total: int) -> int:
         if total <= 0:
@@ -303,7 +313,7 @@ async def run_backfill(
                 session,
                 book_key=book_key,
                 prefer_book_key=prefer_book_key,
-                limit=max_books if not full_run else max(max_books, 100),
+                limit=max(1, int(max_books)),
             )
             if book_key and not editions:
                 ed = session.exec(
@@ -597,7 +607,10 @@ async def run_backfill(
             if final_status == "done":
                 msg = "全部书籍翻译完成"
             else:
-                msg = f"{msg}；未完成，下次可继续"
+                msg = f"{msg}；将自动继续下一本" if full_run and not book_key else f"{msg}；未完成，可继续"
+            # Keep cursor on next pending book for resume/chain.
+            next_key = still_pending[0].book_key if still_pending else None
+            next_eid = still_pending[0].id if still_pending else None
             book_shared.save_translate_checkpoint(
                 session,
                 status=final_status,
@@ -606,12 +619,14 @@ async def run_backfill(
                 translated_paragraphs=translated,
                 failed_paragraphs=failed,
                 message=msg,
+                current_book_key=next_key,
+                current_edition_id=next_eid,
                 clear_cursor=(final_status == "done"),
                 job_id=job_id,
             )
             _update_job(session, job_id, status="done" if final_status == "done" else "paused", progress=100 if final_status == "done" else _pct(finished_base + books_done + books_skipped, total_plan), message=msg)
             _set_progress(
-                current_book_key=None if final_status == "done" else prefer_book_key,
+                current_book_key=None if final_status == "done" else next_key,
                 current_title=None,
                 message=msg,
                 books_done=books_done,
@@ -620,6 +635,9 @@ async def run_backfill(
                 percent=100 if final_status == "done" else _pct(finished_base + books_done + books_skipped, total_plan),
                 translated=translated,
                 failed=failed,
+            )
+            should_chain = bool(
+                full_run and not book_key and final_status == "paused" and still_pending
             )
             run_completed = True
             return {
@@ -633,6 +651,7 @@ async def run_backfill(
                 "message": msg,
                 "resumed": resuming,
                 "checkpoint_status": final_status,
+                "will_continue": should_chain,
             }
     except Exception as e:
         logger.exception("book translate backfill failed")
@@ -669,6 +688,17 @@ async def run_backfill(
                         message=row.message or "任务已暂停，可继续翻译",
                         job_id=job_id,
                     )
+        if should_chain:
+            logger.info("chaining next book-translate slice (max_books=1)")
+            start_backfill(
+                book_key=None,
+                limit=limit,
+                batch_size=batch_size,
+                max_books=1,
+                ensure_catalog=False,
+                full_run=True,
+                job_id=job_id,
+            )
 
 
 def start_backfill(

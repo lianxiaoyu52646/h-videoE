@@ -230,7 +230,9 @@ def upsert_paragraph_translation(
     zh_text: str,
     *,
     source: str = "youdao",
+    force: bool = False,
 ) -> bool:
+    """Write shared ZH. By default never overwrite non-empty existing translation."""
     zh = (zh_text or "").strip()
     if not zh:
         return False
@@ -253,9 +255,12 @@ def upsert_paragraph_translation(
         )
         session.add(para)
         return True
-    if (para.zh_text or "").strip() == zh:
+    existing = (para.zh_text or "").strip()
+    if existing and not force:
+        # Keep shared ZH stable for all users.
         return False
-    was_empty = not (para.zh_text or "").strip()
+    if existing == zh:
+        return False
     para.zh_text = zh
     para.zh_source = source
     para.translated_at = now
@@ -264,7 +269,7 @@ def upsert_paragraph_translation(
         para.en_text = en_text
         para.en_hash = text_hash(en_text)
     session.add(para)
-    return was_empty
+    return True
 
 
 def save_block_translations_to_shared(
@@ -543,6 +548,38 @@ def mark_paragraph_skipped(session: Session, para: models.BookParagraph) -> None
     para.translated_at = _utc_now()
     para.updated_at = _utc_now()
     session.add(para)
+
+
+def mark_paragraph_translate_failed(
+    session: Session,
+    para: models.BookParagraph,
+    *,
+    max_retries: int = 3,
+) -> bool:
+    """Bump error:N; after max_retries mark skip so backfill won't loop forever.
+
+    Returns True if permanently skipped.
+    """
+    src = (para.zh_source or "").strip()
+    n = 0
+    if src.startswith("error:"):
+        try:
+            n = int(src.split(":", 1)[1])
+        except ValueError:
+            n = 0
+    n += 1
+    now = _utc_now()
+    if n >= max_retries:
+        para.zh_text = (para.zh_text or "").strip()
+        para.zh_source = "skip"
+        para.translated_at = now
+        para.updated_at = now
+        session.add(para)
+        return True
+    para.zh_source = f"error:{n}"
+    para.updated_at = now
+    session.add(para)
+    return False
 
 
 def ensure_edition_from_catalog(

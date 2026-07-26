@@ -43,11 +43,12 @@ async def backfill_book_translations(
 
     user_id = security.get_current_user_id(required=False) or 1
     if full_run and not book_key:
-        # Seed first so scan counts are accurate for this run
+        # Seed first so scan counts are accurate for this run.
+        # One book per worker slice — long full-library runs get killed on free Render.
         if ensure_catalog:
             book_shared.ensure_catalog_editions(session, limit=100)
-        stats = book_shared.edition_translation_stats(session)
-        max_books = max(max_books, int(stats.get("pending_books") or 0) or 1)
+        max_books = 1
+        batch_size = min(batch_size, 15)
 
     edition = None
     if book_key:
