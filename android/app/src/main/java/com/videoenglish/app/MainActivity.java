@@ -26,6 +26,9 @@ public class MainActivity extends AppCompatActivity {
     private DictionaryDatabaseHelper dbHelper;
     private TextToSpeech tts;
     private boolean ttsReady = false;
+    /** False until TextToSpeech.onInit finishes (success or failure). */
+    private boolean ttsInitDone = false;
+    private final java.util.ArrayDeque<String> pendingSpeak = new java.util.ArrayDeque<>();
     private Translator enToZhTranslator;
     private boolean translatorReady = false;
 
@@ -51,6 +54,10 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setUseWideViewPort(true);
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(false);
+        // Allow Audio() TTS fallback after a user tap in WebView.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            webSettings.setMediaPlaybackRequiresUserGesture(false);
+        }
 
         webView.addJavascriptInterface(new DictionaryBridge(), "AndroidDictionary");
 
@@ -71,18 +78,52 @@ public class MainActivity extends AppCompatActivity {
         tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
             @Override
             public void onInit(int status) {
+                ttsInitDone = true;
                 if (status == TextToSpeech.SUCCESS) {
                     int result = tts.setLanguage(Locale.US);
                     if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        result = tts.setLanguage(Locale.ENGLISH);
+                    }
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                         ttsReady = false;
+                        pendingSpeak.clear();
                         Log.e("MainActivity", "English TTS not supported");
                     } else {
                         ttsReady = true;
                         Log.d("MainActivity", "TTS initialized successfully");
+                        flushPendingSpeak();
                     }
                 } else {
                     ttsReady = false;
+                    pendingSpeak.clear();
                     Log.e("MainActivity", "TTS initialization failed");
+                }
+            }
+        });
+    }
+
+    private void speakNow(String word) {
+        if (tts == null || word == null || word.isEmpty()) return;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+            tts.speak(word, TextToSpeech.QUEUE_FLUSH, null, "speak_" + System.currentTimeMillis());
+        } else {
+            tts.speak(word, TextToSpeech.QUEUE_FLUSH, null);
+        }
+    }
+
+    private void flushPendingSpeak() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (!ttsReady || tts == null) return;
+                while (!pendingSpeak.isEmpty()) {
+                    String next = pendingSpeak.pollFirst();
+                    if (next != null && !next.isEmpty()) {
+                        // Keep only the latest request sounding natural.
+                        if (pendingSpeak.isEmpty()) {
+                            speakNow(next);
+                        }
+                    }
                 }
             }
         });
@@ -170,26 +211,34 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public void speak(String word) {
-            if (!ttsReady || tts == null || word == null || word.isEmpty()) {
-                Log.w("DictionaryBridge", "TTS not ready, skip speak: " + word);
-                return;
-            }
+            if (word == null || word.isEmpty()) return;
+            final String text = word.trim();
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    if (!ttsReady || tts == null) return;
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                        tts.speak(word, TextToSpeech.QUEUE_FLUSH, null, "speak_" + System.currentTimeMillis());
-                    } else {
-                        tts.speak(word, TextToSpeech.QUEUE_FLUSH, null);
+                    if (ttsReady && tts != null) {
+                        pendingSpeak.clear();
+                        speakNow(text);
+                        return;
                     }
+                    if (!ttsInitDone) {
+                        // Queue until TTS engine finishes init — do not drop the tap.
+                        pendingSpeak.clear();
+                        pendingSpeak.addLast(text);
+                        Log.w("DictionaryBridge", "TTS not ready, queued speak: " + text);
+                        return;
+                    }
+                    // Init finished but engine unavailable — JS should fall through to audio.
+                    Log.w("DictionaryBridge", "TTS unavailable, drop speak: " + text);
                 }
             });
         }
         
         @JavascriptInterface
         public boolean isTtsAvailable() {
-            return ttsReady && tts != null;
+            // true while still initializing (speak will queue) or when ready.
+            // false only after init failed — JS then uses audio fallback.
+            return ttsReady || !ttsInitDone;
         }
 
         @JavascriptInterface

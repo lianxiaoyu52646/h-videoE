@@ -767,6 +767,32 @@ body.eyecare .reader-zh { color: #3d5c45; }
   font-size: 1.15rem;
   vertical-align: middle;
 }
+/* Same footprint as .speak-btn / .speak-btn-sm — soft remove control */
+.remove-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: 1.5px solid #ffe0ec;
+  background: linear-gradient(180deg, #fff8fb, #ffeef5);
+  color: #ff5c8a;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+.remove-btn.speak-btn-sm {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  font-size: 0.95rem;
+}
+.remove-btn:active { transform: scale(0.9); }
 .m-word-head {
   display: flex;
   align-items: center;

@@ -65,53 +65,90 @@
       .replace(/"/g, '&quot;');
   }
 
-  /** Real-time English TTS: Android bridge when ready, else Web Speech API. */
+  /** Word TTS: only from user clicks. Android TTS → Web Speech → audio (Youdao). */
   function speakWord(word) {
     const w = String(word || '').trim();
     if (!w) {
       toast('没有可朗读的单词');
       return;
     }
-    // Prefer native TTS only when the bridge reports ready — otherwise fall through.
-    // (Earlier bug: always called AndroidDictionary.speak and returned; silent if TTS not ready.)
+
+    // 1) Android App bridge. WebView usually has NO speechSynthesis — must not toast then.
+    //    Only skip bridge when init finished AND engine failed (isTtsAvailable === false).
     try {
       const bridge = window.AndroidDictionary;
       if (bridge && typeof bridge.speak === 'function') {
-        const ready = typeof bridge.isTtsAvailable === 'function' ? !!bridge.isTtsAvailable() : false;
-        if (ready) {
+        const avail =
+          typeof bridge.isTtsAvailable === 'function' ? !!bridge.isTtsAvailable() : true;
+        if (avail) {
           bridge.speak(w);
           return;
         }
       }
     } catch (_) { /* fall through */ }
 
-    if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
-      toast('当前环境不支持朗读');
+    // 2) Web Speech API (mobile Chrome / Safari)
+    if ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance !== 'undefined') {
+      const utter = () => {
+        try {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(w);
+          u.lang = 'en-US';
+          u.rate = 0.9;
+          const voices = window.speechSynthesis.getVoices() || [];
+          const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
+          if (en) u.voice = en;
+          u.onerror = () => speakViaAudioFallback(w);
+          setTimeout(() => {
+            try { window.speechSynthesis.speak(u); } catch (_) { speakViaAudioFallback(w); }
+          }, 0);
+        } catch (_) {
+          speakViaAudioFallback(w);
+        }
+      };
+      const voices = window.speechSynthesis.getVoices() || [];
+      if (!voices.length) {
+        window.speechSynthesis.addEventListener('voiceschanged', utter, { once: true });
+      }
+      utter();
       return;
     }
-    const utter = () => {
-      try {
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(w);
-        u.lang = 'en-US';
-        u.rate = 0.9;
-        const voices = window.speechSynthesis.getVoices() || [];
-        const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
-        if (en) u.voice = en;
-        u.onerror = () => toast('朗读失败');
-        // Chrome/WebView: cancel()+speak() in the same tick can drop audio.
-        setTimeout(() => {
-          try { window.speechSynthesis.speak(u); } catch (_) { toast('朗读失败'); }
-        }, 0);
-      } catch (_) {
-        toast('朗读失败');
-      }
-    };
-    const voices = window.speechSynthesis.getVoices() || [];
-    if (!voices.length) {
-      window.speechSynthesis.addEventListener('voiceschanged', utter, { once: true });
+
+    // 3) Audio clip — covers Android WebView / browsers without speechSynthesis
+    speakViaAudioFallback(w);
+  }
+
+  function speakViaAudioFallback(word) {
+    const w = String(word || '').trim();
+    if (!w) return;
+    const sources = [
+      // Youdao — usually reachable in CN
+      'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(w),
+      // Google TTS — backup
+      'https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' +
+        encodeURIComponent(w),
+    ];
+    try {
+      if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
+      const audio = window._wpSpeakAudio;
+      try { audio.pause(); } catch (_) {}
+      let i = 0;
+      const tryNext = () => {
+        if (i >= sources.length) {
+          toast('朗读失败，请检查网络');
+          return;
+        }
+        audio.src = sources[i++];
+        const play = audio.play();
+        if (play && typeof play.catch === 'function') {
+          play.catch(tryNext);
+        }
+      };
+      audio.onerror = tryNext;
+      tryNext();
+    } catch (_) {
+      toast('朗读失败，请检查网络');
     }
-    utter();
   }
 
   function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {
@@ -1133,15 +1170,6 @@
     if (state.tab === 'vocab') renderVocab();
   }
 
-  function vocabSourceLabel(v) {
-    const p = (v?.source_platform || '').toLowerCase();
-    if (p === 'reading') return '阅读';
-    if (p === 'wordbook') return '词书';
-    if (p === 'pk') return '对战';
-    if (p === 'youtube' || p === 'bilibili' || p === 'web') return '视频';
-    return '生词';
-  }
-
   function renderVocab() {
     const root = $('#view-vocab');
     const due = state.due || [];
@@ -1150,11 +1178,11 @@
     root.innerHTML = `
       <div class="m-hero">
         <h1>生词 · 记忆</h1>
-        <p>上方是 FSRS 到期推荐池；下方是生词仓库。练习只点「会 / 不会」。</p>
+        <p>到期词逐个练习；生词本可随时移出。</p>
       </div>
       <div class="m-card">
         <h2>今日练习 · 到期 ${due.length} 个</h2>
-        <p class="m-muted" style="margin:0 0 12px;">按熟练度智能排期；「会」延后复习，「不会」尽快再练。不删词。</p>
+        <p class="m-muted" style="margin:0 0 12px;">「会」延后复习，「不会」尽快再练。练习不会删词。</p>
         ${current ? `
           <div class="flash-card">
             <div class="flash-word-row">
@@ -1163,29 +1191,16 @@
             </div>
             <div class="flash-phonetic">${escapeHtml(current.pronunciation || '')}</div>
             <div class="flash-meaning">${escapeHtml(current.translation || current.definition || '')}</div>
-            <div class="m-muted" style="margin-top:8px;font-size:0.82rem;">来自 ${escapeHtml(vocabSourceLabel(current))}${current.source_title ? ` · ${escapeHtml(current.source_title)}` : ''}</div>
           </div>
           <div class="binary-actions">
             <button class="m-btn m-btn-mint" id="reviewKnow" type="button">会</button>
             <button class="m-btn m-btn-danger" id="reviewUnknown" type="button">不会</button>
           </div>
-          ${due.length > 1 ? `
-            <div class="due-queue" style="margin-top:14px;">
-              <div class="m-muted" style="margin-bottom:8px;font-weight:800;">待练队列</div>
-              ${due.map((v, i) => `
-                <div class="m-list-item ${i === 0 ? 'is-current-due' : ''}">
-                  <span>
-                    <strong>${i === 0 ? '▶ ' : ''}${escapeHtml(v.word)}</strong>
-                    <span class="m-muted">${escapeHtml(v.translation || v.definition || '')}</span>
-                  </span>
-                  <span class="m-chip">${escapeHtml(vocabSourceLabel(v))}</span>
-                </div>`).join('')}
-            </div>` : ''}
         ` : '<p class="m-muted">暂无到期词。去阅读 / 词书 / 对战收藏生词后，到期会自动出现在这里。</p>'}
       </div>
       <div class="m-card">
         <h2>生词本 · 全部 (${warehouse.length})</h2>
-        <p class="m-muted" style="margin:0 0 10px;">仓库列表；「移出」才真正删除。</p>
+        <p class="m-muted" style="margin:0 0 10px;">点 ✕ 移出后不再推送练习。</p>
         ${warehouse.map((v) => `
           <div class="m-list-item">
             <span>
@@ -1195,8 +1210,7 @@
             </span>
             <span class="m-list-actions">
               ${speakBtnHtml(v.word, 'speak-btn-sm')}
-              <span class="m-chip">${escapeHtml(vocabSourceLabel(v))}</span>
-              <button class="m-btn m-btn-ghost" data-remove-vocab="${v.id}" type="button">移出</button>
+              <button class="remove-btn speak-btn-sm" data-remove-vocab="${v.id}" type="button" aria-label="移出 ${escapeHtml(v.word)}" title="移出">✕</button>
             </span>
           </div>`).join('') || '<p class="m-muted">生词本是空的</p>'}
       </div>`;
@@ -1769,13 +1783,14 @@
   $('#userBtn').addEventListener('click', () => setTab('mine'));
   $$('#tabNav button').forEach((btn) => btn.addEventListener('click', () => setTab(btn.dataset.tab)));
 
-  // Capture phase so speak works even inside PK option buttons.
+  // Capture phase so speak works even inside PK option rows.
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-speak-word]');
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
-    speakWord(btn.dataset.speakWord);
+    const word = btn.getAttribute('data-speak-word') || btn.dataset.speakWord || '';
+    speakWord(word);
   }, true);
 
   async function boot() {
