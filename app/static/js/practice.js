@@ -144,7 +144,6 @@
     if (answer.trim().toLowerCase() === q.answer.toLowerCase()) {
       msg.textContent = '✅ 正确！';
       msg.className = 'result-msg correct';
-      speak(q.answer);
     } else {
       msg.textContent = `❌ 错误！正确答案: ${q.answer}`;
       msg.className = 'result-msg wrong';
@@ -164,7 +163,6 @@
     `;
     const input = document.getElementById('answerInput');
     document.getElementById('playBtn').addEventListener('click', () => speak(q.answer));
-    setTimeout(() => speak(q.answer), 500);
     document.getElementById('submitBtn').addEventListener('click', () => {
       const msg = document.getElementById('resultMsg');
       if (input.value.trim().toLowerCase() === q.answer.toLowerCase()) {
@@ -203,7 +201,6 @@
       if (correct) {
         msg.textContent = '✅ 正确！';
         msg.className = 'result-msg correct';
-        speak(q.answer);
       } else {
         msg.textContent = `❌ 错误！正确答案: ${q.answer}`;
         msg.className = 'result-msg wrong';
@@ -244,7 +241,6 @@
           msg.textContent = `❌ 错误！正确答案: ${q.answer}`;
           msg.className = 'result-msg wrong';
         }
-        speak(q.answer);
         setTimeout(() => { qIdx += 1; renderQuestion(); }, 2000);
       });
       list.appendChild(btn);

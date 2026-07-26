@@ -1845,7 +1845,6 @@ function renderReviewCard() {
     document.getElementById('showAnswerBtn').addEventListener('click', () => {
       showAnswer = true;
       renderReviewCard();
-      speakWord(card.word);
     });
     return;
   }
@@ -2030,7 +2029,6 @@ function renderPracticeQuestion() {
         <div id="resultMsg" class="result-msg"></div>
       </div>
     `;
-    setTimeout(() => speakWord(q.answer), 500);
     const input = document.getElementById('answerInput');
     input.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') checkSpellingAnswer(q.answer);
@@ -2064,7 +2062,6 @@ function renderPracticeQuestion() {
           msg.textContent = `❌ 错误！正确答案: ${q.answer}`;
           msg.className = 'result-msg wrong';
         }
-        speakWord(q.answer);
         setTimeout(() => { practiceIdx += 1; renderPracticeQuestion(); }, 2000);
       });
       list.appendChild(btn);
@@ -2080,7 +2077,6 @@ function checkSpellingAnswer(correctAnswer) {
   if (answer.toLowerCase() === correctAnswer.toLowerCase()) {
     msg.textContent = '✅ 正确！';
     msg.className = 'result-msg correct';
-    speakWord(correctAnswer);
   } else {
     msg.textContent = `❌ 错误！正确答案: ${correctAnswer}`;
     msg.className = 'result-msg wrong';

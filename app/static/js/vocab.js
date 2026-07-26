@@ -225,7 +225,6 @@ function renderReview() {
     document.getElementById('showAnswerBtn').addEventListener('click', () => {
       showAnswer = true;
       renderReview();
-      speakWord(card.word);
     });
     return;
   }

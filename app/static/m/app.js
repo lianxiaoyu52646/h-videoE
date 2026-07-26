@@ -503,7 +503,6 @@
           <button class="m-btn m-btn-danger" id="unknowWord" type="button">不会</button>
         </div>
         <button class="m-btn m-btn-ghost m-btn-block" style="margin-top:8px;" id="closeWord" type="button">关闭</button>`);
-      speakWord(headWord);
       $('#closeWord').onclick = closeModal;
       $('#knowWord').onclick = () => { closeModal(); toast('继续读～'); };
       $('#unknowWord').onclick = async () => {
@@ -1152,7 +1151,6 @@
           </div>`).join('') || '<p class="m-muted">生词本是空的</p>'}
       </div>`;
 
-    if (current?.word) speakWord(current.word);
     $('#reviewKnow')?.addEventListener('click', () => reviewOrRemove(true));
     $('#reviewUnknown')?.addEventListener('click', () => reviewOrRemove(false));
     $$('[data-know]').forEach((btn) => {
