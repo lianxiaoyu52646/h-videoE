@@ -65,29 +65,53 @@
       .replace(/"/g, '&quot;');
   }
 
-  /** Real-time English TTS: Android bridge first, else Web Speech API. */
+  /** Real-time English TTS: Android bridge when ready, else Web Speech API. */
   function speakWord(word) {
     const w = String(word || '').trim();
-    if (!w) return;
+    if (!w) {
+      toast('没有可朗读的单词');
+      return;
+    }
+    // Prefer native TTS only when the bridge reports ready — otherwise fall through.
+    // (Earlier bug: always called AndroidDictionary.speak and returned; silent if TTS not ready.)
     try {
-      if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
-        window.AndroidDictionary.speak(w);
-        return;
+      const bridge = window.AndroidDictionary;
+      if (bridge && typeof bridge.speak === 'function') {
+        const ready = typeof bridge.isTtsAvailable === 'function' ? !!bridge.isTtsAvailable() : false;
+        if (ready) {
+          bridge.speak(w);
+          return;
+        }
       }
     } catch (_) { /* fall through */ }
-    if (!('speechSynthesis' in window)) {
+
+    if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
       toast('当前环境不支持朗读');
       return;
     }
-    try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(w);
-      u.lang = 'en-US';
-      u.rate = 0.9;
-      window.speechSynthesis.speak(u);
-    } catch (_) {
-      toast('朗读失败');
+    const utter = () => {
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(w);
+        u.lang = 'en-US';
+        u.rate = 0.9;
+        const voices = window.speechSynthesis.getVoices() || [];
+        const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
+        if (en) u.voice = en;
+        u.onerror = () => toast('朗读失败');
+        // Chrome/WebView: cancel()+speak() in the same tick can drop audio.
+        setTimeout(() => {
+          try { window.speechSynthesis.speak(u); } catch (_) { toast('朗读失败'); }
+        }, 0);
+      } catch (_) {
+        toast('朗读失败');
+      }
+    };
+    const voices = window.speechSynthesis.getVoices() || [];
+    if (!voices.length) {
+      window.speechSynthesis.addEventListener('voiceschanged', utter, { once: true });
     }
+    utter();
   }
 
   function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {

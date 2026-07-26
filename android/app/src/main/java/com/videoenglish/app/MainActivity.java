@@ -25,6 +25,7 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private DictionaryDatabaseHelper dbHelper;
     private TextToSpeech tts;
+    private boolean ttsReady = false;
     private Translator enToZhTranslator;
     private boolean translatorReady = false;
 
@@ -73,11 +74,14 @@ public class MainActivity extends AppCompatActivity {
                 if (status == TextToSpeech.SUCCESS) {
                     int result = tts.setLanguage(Locale.US);
                     if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        ttsReady = false;
                         Log.e("MainActivity", "English TTS not supported");
                     } else {
+                        ttsReady = true;
                         Log.d("MainActivity", "TTS initialized successfully");
                     }
                 } else {
+                    ttsReady = false;
                     Log.e("MainActivity", "TTS initialization failed");
                 }
             }
@@ -166,23 +170,26 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public void speak(String word) {
-            if (tts != null && word != null && !word.isEmpty()) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                            tts.speak(word, TextToSpeech.QUEUE_FLUSH, null, "speak_" + System.currentTimeMillis());
-                        } else {
-                            tts.speak(word, TextToSpeech.QUEUE_FLUSH, null);
-                        }
-                    }
-                });
+            if (!ttsReady || tts == null || word == null || word.isEmpty()) {
+                Log.w("DictionaryBridge", "TTS not ready, skip speak: " + word);
+                return;
             }
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (!ttsReady || tts == null) return;
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                        tts.speak(word, TextToSpeech.QUEUE_FLUSH, null, "speak_" + System.currentTimeMillis());
+                    } else {
+                        tts.speak(word, TextToSpeech.QUEUE_FLUSH, null);
+                    }
+                }
+            });
         }
         
         @JavascriptInterface
         public boolean isTtsAvailable() {
-            return tts != null;
+            return ttsReady && tts != null;
         }
 
         @JavascriptInterface
