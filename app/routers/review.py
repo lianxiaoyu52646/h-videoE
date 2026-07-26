@@ -8,6 +8,7 @@ router = APIRouter(prefix="/api", tags=["review"])
 
 @router.post("/review", response_model=schemas.VocabRead)
 def review_vocab(request: schemas.ReviewRequest, session: Session = Depends(database.session_dependency)):
+    """Apply FSRS rating. Mobile UI maps 会→4 (Good), 不会→1 (Again); other ratings unused in UI."""
     card = crud.review_vocab(session, request.vocab_id, request.rating)
     if not card:
         raise HTTPException(status_code=404, detail="Vocabulary card not found")
@@ -20,6 +21,7 @@ def recommendations(
     wordbook_id: int | None = Query(None),
     session: Session = Depends(database.session_dependency),
 ):
+    """FSRS due pool: all VocabItem with due <= now (no daily cap)."""
     items = crud.get_due_vocab(
         session,
         datetime.utcnow(),

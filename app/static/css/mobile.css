@@ -879,6 +879,10 @@ body.eyecare .reader-zh { color: #3d5c45; }
 }
 .flash-phonetic { color: var(--aqua); margin-bottom: 10px; font-weight: 700; }
 .flash-meaning { color: var(--ink); line-height: 1.5; font-weight: 700; }
+.m-list-item.is-current-due {
+  border-color: rgba(255, 92, 138, 0.35);
+  background: linear-gradient(135deg, #fff7fb, #f3fbff);
+}
 
 .binary-actions {
   display: grid;

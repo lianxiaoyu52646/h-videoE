@@ -490,11 +490,12 @@ def get_due_vocab(
     wordbook_id: int | None = None,
     user_id: int | None = None,
 ):
+    """Return all due cards for FSRS practice queue (no count limit)."""
     stmt = select(models.VocabItem).where(models.VocabItem.due <= now)
     stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
     if wordbook_id is not None:
         stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
-    items = session.exec(stmt.order_by(models.VocabItem.due)).all()
+    items = session.exec(stmt.order_by(models.VocabItem.due.asc())).all()
     if source_video_id:
         items = [item for item in items if _card_matches_source(session, item, source_video_id)]
     return items

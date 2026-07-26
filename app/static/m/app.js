@@ -1109,17 +1109,28 @@
     if (state.tab === 'vocab') renderVocab();
   }
 
+  function vocabSourceLabel(v) {
+    const p = (v?.source_platform || '').toLowerCase();
+    if (p === 'reading') return '阅读';
+    if (p === 'wordbook') return '词书';
+    if (p === 'pk') return '对战';
+    if (p === 'youtube' || p === 'bilibili' || p === 'web') return '视频';
+    return '生词';
+  }
+
   function renderVocab() {
     const root = $('#view-vocab');
     const due = state.due || [];
     const current = due[0];
+    const warehouse = state.vocab || [];
     root.innerHTML = `
       <div class="m-hero">
-        <h1>生词本 · 每日练习</h1>
-        <p>FSRS 智能推送。点「会」移出；点「不会」继续练。</p>
+        <h1>生词 · 记忆</h1>
+        <p>上方是 FSRS 到期推荐池；下方是生词仓库。练习只点「会 / 不会」。</p>
       </div>
       <div class="m-card">
-        <h2>今日练习 ${due.length ? `(${due.length})` : ''}</h2>
+        <h2>今日练习 · 到期 ${due.length} 个</h2>
+        <p class="m-muted" style="margin:0 0 12px;">按熟练度智能排期；「会」延后复习，「不会」尽快再练。不删词。</p>
         ${current ? `
           <div class="flash-card">
             <div class="flash-word-row">
@@ -1128,16 +1139,30 @@
             </div>
             <div class="flash-phonetic">${escapeHtml(current.pronunciation || '')}</div>
             <div class="flash-meaning">${escapeHtml(current.translation || current.definition || '')}</div>
+            <div class="m-muted" style="margin-top:8px;font-size:0.82rem;">来自 ${escapeHtml(vocabSourceLabel(current))}${current.source_title ? ` · ${escapeHtml(current.source_title)}` : ''}</div>
           </div>
           <div class="binary-actions">
             <button class="m-btn m-btn-mint" id="reviewKnow" type="button">会</button>
             <button class="m-btn m-btn-danger" id="reviewUnknown" type="button">不会</button>
           </div>
-        ` : '<p class="m-muted">今天没有到期词，去阅读或词书收集一些吧</p>'}
+          ${due.length > 1 ? `
+            <div class="due-queue" style="margin-top:14px;">
+              <div class="m-muted" style="margin-bottom:8px;font-weight:800;">待练队列</div>
+              ${due.map((v, i) => `
+                <div class="m-list-item ${i === 0 ? 'is-current-due' : ''}">
+                  <span>
+                    <strong>${i === 0 ? '▶ ' : ''}${escapeHtml(v.word)}</strong>
+                    <span class="m-muted">${escapeHtml(v.translation || v.definition || '')}</span>
+                  </span>
+                  <span class="m-chip">${escapeHtml(vocabSourceLabel(v))}</span>
+                </div>`).join('')}
+            </div>` : ''}
+        ` : '<p class="m-muted">暂无到期词。去阅读 / 词书 / 对战收藏生词后，到期会自动出现在这里。</p>'}
       </div>
       <div class="m-card">
-        <h2>全部生词 (${(state.vocab || []).length})</h2>
-        ${(state.vocab || []).map((v) => `
+        <h2>生词本 · 全部 (${warehouse.length})</h2>
+        <p class="m-muted" style="margin:0 0 10px;">仓库列表；「移出」才真正删除。</p>
+        ${warehouse.map((v) => `
           <div class="m-list-item">
             <span>
               <strong>${escapeHtml(v.word)}</strong>
@@ -1146,17 +1171,18 @@
             </span>
             <span class="m-list-actions">
               ${speakBtnHtml(v.word, 'speak-btn-sm')}
-              <button class="m-btn m-btn-mint" data-know="${v.id}" type="button">会</button>
+              <span class="m-chip">${escapeHtml(vocabSourceLabel(v))}</span>
+              <button class="m-btn m-btn-ghost" data-remove-vocab="${v.id}" type="button">移出</button>
             </span>
           </div>`).join('') || '<p class="m-muted">生词本是空的</p>'}
       </div>`;
 
-    $('#reviewKnow')?.addEventListener('click', () => reviewOrRemove(true));
-    $('#reviewUnknown')?.addEventListener('click', () => reviewOrRemove(false));
-    $$('[data-know]').forEach((btn) => {
+    $('#reviewKnow')?.addEventListener('click', () => reviewDueCard(true));
+    $('#reviewUnknown')?.addEventListener('click', () => reviewDueCard(false));
+    $$('[data-remove-vocab]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         try {
-          await api(`/api/vocab/${btn.dataset.know}`, { method: 'DELETE' });
+          await api(`/api/vocab/${btn.dataset.removeVocab}`, { method: 'DELETE' });
           await loadVocab();
           toast('已移出生词本');
           renderVocab();
@@ -1165,18 +1191,17 @@
     });
   }
 
-  async function reviewOrRemove(know) {
+  /** FSRS review only: 会→Good(4), 不会→Again(1). Never delete the card here. */
+  async function reviewDueCard(know) {
     const card = (state.due || [])[0];
     if (!card) return;
     try {
-      if (know) {
-        await api('/api/review', { method: 'POST', body: { vocab_id: card.id, rating: 4 } });
-        await api(`/api/vocab/${card.id}`, { method: 'DELETE' });
-        toast('会！已移出');
-      } else {
-        await api('/api/review', { method: 'POST', body: { vocab_id: card.id, rating: 1 } });
-        toast('不会，稍后再练');
-      }
+      // Frontend shows only 会/不会; finer FSRS state stays in DB.
+      await api('/api/review', {
+        method: 'POST',
+        body: { vocab_id: card.id, rating: know ? 4 : 1 },
+      });
+      toast(know ? '会，已按计划延后' : '不会，稍后还会推送');
       await loadVocab();
       renderVocab();
     } catch (e) { toast(e.message); }
@@ -1282,7 +1307,7 @@
         <div class="m-card">
           <h2>题库</h2>
           <select class="m-input" id="pkBook">
-            <option value="">随机词典</option>
+            <option value="">ECDICT随机词典</option>
             ${books.map((b) => `<option value="${b.id}" ${state.pk.wordbookId == b.id ? 'selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
           </select>
           <button class="m-btn m-btn-primary m-btn-block" id="pkCreate" type="button">创建房间</button>
