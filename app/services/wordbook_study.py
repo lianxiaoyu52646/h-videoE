@@ -274,12 +274,13 @@ def study_feed(
 
     memory = get_or_create_memory(session, wordbook_id, user_id=uid)
     total = _total_entries(session, wordbook_id)
-    memory.total_count = total
-    memory.last_studied_at = datetime.utcnow()
-    memory.updated_at = datetime.utcnow()
-    session.add(memory)
-    session.commit()
-    session.refresh(memory)
+    # Read path: avoid a Neon write on every scroll page (was a major latency source).
+    if int(memory.total_count or 0) != int(total):
+        memory.total_count = total
+        memory.updated_at = datetime.utcnow()
+        session.add(memory)
+        session.commit()
+        session.refresh(memory)
 
     limit = max(1, min(50, limit))
     # Browse by absolute offset; omit offset → open at saved resume position.
@@ -448,7 +449,23 @@ def star_entry(
             entry=entry,
             status="unknown",
         )
-        word_data = dictionary.lookup_word_fast(entry.word, session=session)
+        # Prefer entry fields — skip dictionary round-trip when translation already present.
+        word_data = {
+            "word": entry.word,
+            "definition": entry.definition or "",
+            "translation": entry.translation,
+            "pronunciation": entry.pronunciation,
+            "part_of_speech": entry.part_of_speech,
+            "example": entry.example,
+        }
+        if not (entry.translation or entry.definition):
+            try:
+                looked = dictionary.lookup_word_fast(entry.word, session=session) or {}
+                for k, v in looked.items():
+                    if v and not word_data.get(k):
+                        word_data[k] = v
+            except Exception:
+                pass
         crud.save_vocab_with_context(
             session,
             {

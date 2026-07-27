@@ -65,7 +65,7 @@
       .replace(/"/g, '&quot;');
   }
 
-  /** Word TTS: only from user clicks. Android TTS → Web Speech → audio (Youdao). */
+  /** Word TTS: only from user clicks. Prefer native TTS; avoid flaky network clips. */
   function speakWord(word) {
     const w = String(word || '').trim();
     if (!w) {
@@ -73,22 +73,26 @@
       return;
     }
 
-    // 1) Android App bridge. WebView usually has NO speechSynthesis — must not toast then.
-    //    Only skip bridge when init finished AND engine failed (isTtsAvailable === false).
+    // 1) Android App bridge — always hand off when present (Java queues until ready).
+    //    Do NOT fall through to Youdao/Google (often blocked → false "网络不好").
     try {
       const bridge = window.AndroidDictionary;
       if (bridge && typeof bridge.speak === 'function') {
-        const avail =
-          typeof bridge.isTtsAvailable === 'function' ? !!bridge.isTtsAvailable() : true;
-        if (avail) {
+        const failed =
+          typeof bridge.isTtsAvailable === 'function' && bridge.isTtsAvailable() === false;
+        if (!failed) {
           bridge.speak(w);
           return;
         }
       }
     } catch (_) { /* fall through */ }
 
-    // 2) Web Speech API (mobile Chrome / Safari)
-    if ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance !== 'undefined') {
+    // 2) Web Speech (browser only — skip stubbed WebView speechSynthesis when bridge missing)
+    const canSpeech =
+      !window.AndroidDictionary &&
+      'speechSynthesis' in window &&
+      typeof window.SpeechSynthesisUtterance !== 'undefined';
+    if (canSpeech) {
       const utter = () => {
         try {
           window.speechSynthesis.cancel();
@@ -98,12 +102,12 @@
           const voices = window.speechSynthesis.getVoices() || [];
           const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
           if (en) u.voice = en;
-          u.onerror = () => speakViaAudioFallback(w);
+          u.onerror = () => speakViaAudioFallback(w, { quiet: true });
           setTimeout(() => {
-            try { window.speechSynthesis.speak(u); } catch (_) { speakViaAudioFallback(w); }
+            try { window.speechSynthesis.speak(u); } catch (_) { speakViaAudioFallback(w, { quiet: true }); }
           }, 0);
         } catch (_) {
-          speakViaAudioFallback(w);
+          speakViaAudioFallback(w, { quiet: true });
         }
       };
       const voices = window.speechSynthesis.getVoices() || [];
@@ -114,40 +118,42 @@
       return;
     }
 
-    // 3) Audio clip — covers Android WebView / browsers without speechSynthesis
     speakViaAudioFallback(w);
   }
 
-  function speakViaAudioFallback(word) {
+  function speakViaAudioFallback(word, { quiet = false } = {}) {
     const w = String(word || '').trim();
     if (!w) return;
     const sources = [
-      // Youdao — usually reachable in CN
       'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(w),
-      // Google TTS — backup
-      'https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=' +
-        encodeURIComponent(w),
+      'https://dict.youdao.com/dictvoice?type=1&audio=' + encodeURIComponent(w),
     ];
     try {
       if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
       const audio = window._wpSpeakAudio;
       try { audio.pause(); } catch (_) {}
       let i = 0;
+      let toastShown = false;
+      const fail = () => {
+        if (quiet || toastShown) return;
+        toastShown = true;
+        toast('朗读暂不可用');
+      };
       const tryNext = () => {
         if (i >= sources.length) {
-          toast('朗读失败，请检查网络');
+          fail();
           return;
         }
+        audio.onerror = tryNext;
         audio.src = sources[i++];
         const play = audio.play();
         if (play && typeof play.catch === 'function') {
           play.catch(tryNext);
         }
       };
-      audio.onerror = tryNext;
       tryNext();
     } catch (_) {
-      toast('朗读失败，请检查网络');
+      if (!quiet) toast('朗读暂不可用');
     }
   }
 
@@ -793,6 +799,7 @@
 
   async function startStudy(wordbookId) {
     teardownStudyObservers();
+    const localCursor = readLocalStudyCursor(wordbookId);
     state.study = {
       wordbookId,
       name: '',
@@ -806,15 +813,54 @@
       hasMoreAfter: true,
       startOffset: 0,
       nextOffset: 0,
-      resumeTarget: 0,
+      resumeTarget: localCursor != null ? localCursor : 0,
       observers: [],
       onScroll: null,
       cursorTimer: null,
-      lastSavedCursor: null,
+      lastSavedCursor: localCursor,
       bootstrapped: false,
       feedSeq: 0,
+      // Until user scrolls upward, do not auto-fetch earlier pages (was causing lag + jump).
+      allowLoadBefore: false,
+      lastScrollY: 0,
+      localResumeOffset: localCursor,
     };
     await loadStudyPage('resume');
+  }
+
+  function studyCursorKey(wordbookId) {
+    return `wp_study_cursor_${wordbookId}`;
+  }
+
+  function readLocalStudyCursor(wordbookId) {
+    try {
+      const raw = localStorage.getItem(studyCursorKey(wordbookId));
+      if (raw == null || raw === '') return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeLocalStudyCursor(wordbookId, cursor) {
+    try {
+      localStorage.setItem(studyCursorKey(wordbookId), String(Math.max(0, Math.floor(Number(cursor) || 0))));
+    } catch (_) {}
+  }
+
+  function patchBookProgressFromStudy() {
+    const s = state.study;
+    if (!s || !Array.isArray(state.wordbooks)) return;
+    const book = state.wordbooks.find((b) => Number(b.id) === Number(s.wordbookId));
+    if (!book) return;
+    const total = s.total || book.entry_count || 0;
+    const cursor = s.lastSavedCursor != null ? s.lastSavedCursor : (s.progress?.cursor || 0);
+    const at = Math.min(total, Math.max(0, cursor) + 1);
+    book.study_seen = Math.max(Number(book.study_seen) || 0, at);
+    book.study_label = total ? `${at} / ${total}` : book.study_label;
+    book.study_percent = total ? Math.min(100, Math.round((at / total) * 100)) : book.study_percent;
+    book.study_cursor = cursor;
   }
 
   function teardownStudyObservers() {
@@ -939,7 +985,7 @@
             updateStudyProgressUi();
           }
           toast(on ? '已进生词本' : '已取消');
-          await refreshVocab();
+          refreshVocab().catch(() => {});
         } catch (e) { toast(e.message); }
       });
     });
@@ -967,7 +1013,9 @@
     if (top) {
       top.textContent = s.loadingBefore
         ? '加载前面的单词…'
-        : (s.hasMoreBefore ? '↑ 继续上滑 · 回到更早的词' : '▲ 词书开头（第 1 个词）');
+        : (s.hasMoreBefore
+          ? (s.allowLoadBefore ? '↑ 继续上滑 · 回到更早的词' : '↑ 上滑可查看更早的词')
+          : '▲ 词书开头（第 1 个词）');
     }
     if (bottom) {
       const total = s.total || 0;
@@ -1071,7 +1119,7 @@
     const s = state.study;
     if (!s) return;
     if (mode === 'before') {
-      if (s.loadingBefore || !s.hasMoreBefore) return;
+      if (!s.allowLoadBefore || s.loadingBefore || !s.hasMoreBefore) return;
       s.loadingBefore = true;
     } else if (mode === 'after') {
       if (s.loadingAfter || !s.hasMoreAfter) return;
@@ -1083,7 +1131,7 @@
     }
 
     const seq = (s.feedSeq = (s.feedSeq || 0) + 1);
-    const pageSize = 20;
+    const pageSize = 24;
     (s.observers || []).forEach((io) => io.disconnect());
     s.observers = [];
     updateStudySentinels();
@@ -1096,15 +1144,47 @@
         const limit = Math.min(pageSize, s.startOffset);
         const offset = Math.max(0, s.startOffset - limit);
         url = `/api/wordbooks/${s.wordbookId}/study-feed?limit=${limit}&offset=${offset}`;
+      } else if (mode === 'resume') {
+        // Open near last word index: prefer local, server may be higher (other device).
+        const local = s.localResumeOffset;
+        if (local != null && Number.isFinite(local) && local >= 0) {
+          url += `&offset=${Math.floor(local)}`;
+        }
       }
-      // resume: omit offset → server opens at saved cursor; list stays ordered 0..N-1
-      const data = await api(url);
+      let data = await api(url);
       if (state.study !== s || seq !== s.feedSeq) return;
+
+      let resumeKeep = null;
+      if (mode === 'resume') {
+        const serverResume = Number(data.resume_offset ?? data.progress?.cursor ?? 0);
+        const local = s.localResumeOffset != null ? Math.floor(s.localResumeOffset) : 0;
+        let target = Math.max(serverResume, local);
+        const totalHint = Number(data.total || 0);
+        if (totalHint) target = Math.max(0, Math.min(target, totalHint - 1));
+        const pageStart = Number(data.offset ?? 0);
+        const pageEnd = pageStart + (data.items || []).length;
+        // Local was behind server (or empty page) → one corrective fetch at exact index.
+        if ((data.items || []).length && (target < pageStart || target >= pageEnd)) {
+          data = await api(
+            `/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}&offset=${target}`
+          );
+          if (state.study !== s || seq !== s.feedSeq) return;
+        }
+        resumeKeep = target;
+        writeLocalStudyCursor(s.wordbookId, target);
+      }
 
       const fresh = applyStudyPage(data, mode === 'resume' ? 'resume' : mode);
 
       if (mode === 'resume' || !s.bootstrapped) {
+        if (mode === 'resume' && resumeKeep != null) {
+          s.resumeTarget = s.total
+            ? Math.max(0, Math.min(resumeKeep, s.total - 1))
+            : resumeKeep;
+          s.lastSavedCursor = s.resumeTarget;
+        }
         s.bootstrapped = true;
+        s.allowLoadBefore = false;
         renderBooks();
         return;
       }
@@ -1123,7 +1203,7 @@
         if (mode !== 'resume' && s.bootstrapped) {
           setTimeout(() => {
             if (state.study === s) attachStudyObservers();
-          }, 100);
+          }, 80);
         }
       }
     }
@@ -1152,6 +1232,9 @@
       cursor = visibleStudyCursor();
       setActiveStudyRow(cursor);
     }
+    if (!Number.isFinite(cursor)) return;
+    cursor = Math.max(0, Math.floor(cursor));
+    writeLocalStudyCursor(s.wordbookId, cursor);
     if (!force && s.lastSavedCursor === cursor) return;
     s.lastSavedCursor = cursor;
     updateStudyProgressUi();
@@ -1171,7 +1254,14 @@
     const s = state.study;
     if (!s) return;
     clearTimeout(s.cursorTimer);
-    s.cursorTimer = setTimeout(() => saveStudyCursor(false), 450);
+    // Local index is instant; server sync can wait a bit longer to cut Neon writes.
+    const cursor = s.pinActiveOffset != null ? Number(s.pinActiveOffset) : visibleStudyCursor();
+    if (Number.isFinite(cursor)) {
+      writeLocalStudyCursor(s.wordbookId, cursor);
+      s.lastSavedCursor = Math.floor(cursor);
+      updateStudyProgressUi();
+    }
+    s.cursorTimer = setTimeout(() => saveStudyCursor(false), 700);
   }
 
   function attachStudyObservers() {
@@ -1187,18 +1277,30 @@
 
     const watch = (el, mode) => {
       if (!el) return;
+      if (mode === 'before' && !s.allowLoadBefore) return;
       const io = new IntersectionObserver((entries) => {
         if (!entries.some((en) => en.isIntersecting)) return;
         loadStudyPage(mode);
-      }, { rootMargin: mode === 'after' ? '80px' : '40px', threshold: 0 });
+      }, { rootMargin: mode === 'after' ? '120px' : '24px', threshold: 0 });
       io.observe(el);
       s.observers.push(io);
     };
 
-    if (s.hasMoreBefore) watch($('#studySentinelTop'), 'before');
+    if (s.hasMoreBefore && s.allowLoadBefore) watch($('#studySentinelTop'), 'before');
     if (s.hasMoreAfter) watch($('#studySentinelBottom'), 'after');
 
+    s.lastScrollY = window.scrollY;
     s.onScroll = () => {
+      const y = window.scrollY;
+      // User scrolled up → allow loading earlier words.
+      if (y + 8 < (s.lastScrollY || 0)) {
+        if (!s.allowLoadBefore) {
+          s.allowLoadBefore = true;
+          updateStudySentinels();
+          watch($('#studySentinelTop'), 'before');
+        }
+      }
+      s.lastScrollY = y;
       syncActiveStudyRowFromScroll();
       scheduleSaveStudyCursor();
     };
@@ -1209,13 +1311,19 @@
   function scrollToResumeWord() {
     const s = state.study;
     if (!s) return;
-    const target = s.resumeTarget;
+    const target = Number(s.resumeTarget);
+    if (!Number.isFinite(target)) return;
     const row = $(`#studyList .study-row[data-offset="${target}"]`)
       || $('#studyList .study-row');
     if (!row) return;
+    // Jump without smooth scroll — precise and fast on mobile WebView.
     const y = row.getBoundingClientRect().top + window.scrollY - 88;
     window.scrollTo(0, Math.max(0, y));
-    setActiveStudyRow(Number(row.dataset.offset ?? target));
+    s.pinActiveOffset = Number(row.dataset.offset ?? target);
+    s.pinScrollY = window.scrollY;
+    s.lastScrollY = window.scrollY;
+    setActiveStudyRow(s.pinActiveOffset);
+    writeLocalStudyCursor(s.wordbookId, s.pinActiveOffset);
   }
 
   function renderStudy(root) {
@@ -1236,7 +1344,9 @@
         </div>
       </div>
       <div class="study-sentinel study-sentinel-top" id="studySentinelTop">${
-        s.hasMoreBefore ? '↑ 继续上滑 · 回到更早的词' : '▲ 词书开头（第 1 个词）'
+        s.hasMoreBefore
+          ? (s.allowLoadBefore ? '↑ 继续上滑 · 回到更早的词' : '↑ 上滑可查看更早的词')
+          : '▲ 词书开头（第 1 个词）'
       }</div>
       <div id="studyList" class="study-list">
         ${s.items.map((it) => studyRowHtml(it)).join('')}
@@ -1249,10 +1359,12 @@
 
     $('#exitStudy').onclick = async () => {
       await saveStudyCursor(true);
+      patchBookProgressFromStudy();
       teardownStudyObservers();
       state.study = null;
-      await loadBooks();
+      // Instant back — do not await full /api/wordbooks (was the slow return).
       renderBooks();
+      loadBooks().catch(() => {});
     };
 
     bindStudyStarButtons(root);
@@ -1260,7 +1372,10 @@
 
     requestAnimationFrame(() => {
       scrollToResumeWord();
-      attachStudyObservers();
+      // Second frame: settle after layout, then enable downward infinite scroll only.
+      requestAnimationFrame(() => {
+        if (state.study === s) attachStudyObservers();
+      });
     });
   }
 

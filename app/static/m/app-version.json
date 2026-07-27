@@ -1,7 +1,7 @@
 {
-  "web_content_version": "20260726.2",
+  "web_content_version": "20260727.1",
   "android_version_code": 2,
   "android_version_name": "1.0.1",
   "android_apk_url": "",
-  "notes": "检测更新、朗读与生词本补丁"
+  "notes": "词书断点续读加速、朗读优先系统TTS"
 }
