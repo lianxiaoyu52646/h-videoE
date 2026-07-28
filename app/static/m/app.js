@@ -282,11 +282,19 @@
   }
 
   function setTab(tab) {
+    const prev = state.tab;
+    // Leaving 词书 while studying: freeze at current word index (local + server).
+    if (prev === 'books' && tab !== 'books' && state.study) {
+      pauseStudySession();
+    }
     state.tab = tab;
     $$('#tabNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${tab}`));
     if (tab === 'read') renderRead();
-    if (tab === 'books') renderBooks();
+    if (tab === 'books') {
+      // Coming back: reopen at the exact last word index.
+      resumeStudySessionIfNeeded().catch(() => renderBooks());
+    }
     if (tab === 'vocab') {
       renderVocab();
       refreshVocab().catch(() => {});
@@ -298,6 +306,76 @@
     } else {
       stopBookTranslatePoll();
     }
+  }
+
+  function lastStudyBookKey() {
+    return 'wp_last_study_book';
+  }
+
+  function writeLastStudyBook(wordbookId) {
+    try {
+      if (wordbookId != null) localStorage.setItem(lastStudyBookKey(), String(wordbookId));
+    } catch (_) {}
+  }
+
+  function readLastStudyBook() {
+    try {
+      const n = Number(localStorage.getItem(lastStudyBookKey()));
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function pauseStudySession() {
+    const s = state.study;
+    if (!s) return;
+    // Capture visible/pinned index immediately.
+    let cursor = s.pinActiveOffset != null ? Number(s.pinActiveOffset) : visibleStudyCursor();
+    if (!Number.isFinite(cursor)) cursor = Number(s.lastSavedCursor || 0);
+    cursor = Math.max(0, Math.floor(cursor));
+    s.lastSavedCursor = cursor;
+    s.resumeTarget = cursor;
+    s.localResumeOffset = cursor;
+    s.pinActiveOffset = cursor;
+    writeLocalStudyCursor(s.wordbookId, cursor);
+    writeLastStudyBook(s.wordbookId);
+    patchBookProgressFromStudy();
+    teardownStudyObservers();
+    // Persist in background — don't block tab switch.
+    saveStudyCursor(true).catch(() => {});
+  }
+
+  async function resumeStudySessionIfNeeded() {
+    // Switched away mid-study: keep session and jump back to the last word index.
+    if (state.study && state.study.bootstrapped) {
+      const s = state.study;
+      const cursor = Math.max(
+        0,
+        Math.floor(
+          Number(
+            s.lastSavedCursor ??
+            readLocalStudyCursor(s.wordbookId) ??
+            s.resumeTarget ??
+            0
+          )
+        )
+      );
+      s.resumeTarget = cursor;
+      s.lastSavedCursor = cursor;
+      s.localResumeOffset = cursor;
+      s.allowLoadBefore = false;
+      writeLocalStudyCursor(s.wordbookId, cursor);
+      writeLastStudyBook(s.wordbookId);
+      const inWindow = (s.items || []).some((it) => Number(it.offset) === cursor);
+      if (!inWindow) {
+        await loadStudyPage('resume');
+        return;
+      }
+      renderBooks();
+      return;
+    }
+    renderBooks();
   }
 
   async function ensureAuth() {
@@ -779,6 +857,7 @@
   async function startStudy(wordbookId) {
     teardownStudyObservers();
     const localCursor = readLocalStudyCursor(wordbookId);
+    writeLastStudyBook(wordbookId);
     state.study = {
       wordbookId,
       name: '',
@@ -1418,6 +1497,10 @@
     $('#exitStudy').onclick = async () => {
       await saveStudyCursor(true);
       patchBookProgressFromStudy();
+      writeLastStudyBook(state.study?.wordbookId);
+      if (state.study?.wordbookId != null && state.study.lastSavedCursor != null) {
+        writeLocalStudyCursor(state.study.wordbookId, state.study.lastSavedCursor);
+      }
       teardownStudyObservers();
       state.study = null;
       // Instant back — do not await full /api/wordbooks (was the slow return).
@@ -1426,7 +1509,11 @@
     };
 
     bindStudyStarButtons(root);
-    if (s.resumeTarget != null) setActiveStudyRow(s.resumeTarget);
+    const jumpTo = s.lastSavedCursor != null ? s.lastSavedCursor : s.resumeTarget;
+    if (jumpTo != null) {
+      s.resumeTarget = jumpTo;
+      setActiveStudyRow(jumpTo);
+    }
 
     requestAnimationFrame(() => {
       scrollToResumeWord();

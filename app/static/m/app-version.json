@@ -1,7 +1,7 @@
 {
-  "web_content_version": "20260728.1",
+  "web_content_version": "20260728.2",
   "android_version_code": 2,
   "android_version_name": "1.0.1",
   "android_apk_url": "",
-  "notes": "词书翻页加速+同域朗读"
+  "notes": "词书切Tab续读定位"
 }
