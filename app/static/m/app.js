@@ -65,7 +65,7 @@
       .replace(/"/g, '&quot;');
   }
 
-  /** Word TTS: only from user clicks. Prefer native TTS; avoid flaky network clips. */
+  /** Word TTS: native bridge → Web Speech → same-origin /api/tts (no third-party). */
   function speakWord(word) {
     const w = String(word || '').trim();
     if (!w) {
@@ -73,88 +73,67 @@
       return;
     }
 
-    // 1) Android App bridge — always hand off when present (Java queues until ready).
-    //    Do NOT fall through to Youdao/Google (often blocked → false "网络不好").
+    // 1) Android bridge: always hand off. Never fall through (avoids "不可用" toasts).
     try {
       const bridge = window.AndroidDictionary;
       if (bridge && typeof bridge.speak === 'function') {
-        const failed =
-          typeof bridge.isTtsAvailable === 'function' && bridge.isTtsAvailable() === false;
-        if (!failed) {
-          bridge.speak(w);
-          return;
-        }
+        bridge.speak(w);
+        // If native TTS permanently failed, Java may call __wpSpeakFallback.
+        return;
       }
     } catch (_) { /* fall through */ }
 
-    // 2) Web Speech (browser only — skip stubbed WebView speechSynthesis when bridge missing)
-    const canSpeech =
-      !window.AndroidDictionary &&
-      'speechSynthesis' in window &&
-      typeof window.SpeechSynthesisUtterance !== 'undefined';
-    if (canSpeech) {
-      const utter = () => {
-        try {
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(w);
-          u.lang = 'en-US';
-          u.rate = 0.9;
-          const voices = window.speechSynthesis.getVoices() || [];
-          const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
-          if (en) u.voice = en;
-          u.onerror = () => speakViaAudioFallback(w, { quiet: true });
-          setTimeout(() => {
-            try { window.speechSynthesis.speak(u); } catch (_) { speakViaAudioFallback(w, { quiet: true }); }
-          }, 0);
-        } catch (_) {
-          speakViaAudioFallback(w, { quiet: true });
-        }
-      };
-      const voices = window.speechSynthesis.getVoices() || [];
-      if (!voices.length) {
-        window.speechSynthesis.addEventListener('voiceschanged', utter, { once: true });
-      }
-      utter();
-      return;
+    // 2) Browser Web Speech
+    if ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance !== 'undefined') {
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(w);
+        u.lang = 'en-US';
+        u.rate = 0.9;
+        const voices = window.speechSynthesis.getVoices() || [];
+        const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
+        if (en) u.voice = en;
+        let fellBack = false;
+        const toAudio = () => {
+          if (fellBack) return;
+          fellBack = true;
+          speakViaServerTts(w);
+        };
+        u.onerror = toAudio;
+        setTimeout(() => {
+          try { window.speechSynthesis.speak(u); } catch (_) { toAudio(); }
+        }, 0);
+        return;
+      } catch (_) { /* fall through */ }
     }
 
-    speakViaAudioFallback(w);
+    speakViaServerTts(w);
   }
 
-  function speakViaAudioFallback(word, { quiet = false } = {}) {
+  window.__wpSpeakFallback = function (word) {
+    speakViaServerTts(String(word || '').trim());
+  };
+
+  function speakViaServerTts(word) {
     const w = String(word || '').trim();
     if (!w) return;
-    const sources = [
-      'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(w),
-      'https://dict.youdao.com/dictvoice?type=1&audio=' + encodeURIComponent(w),
-    ];
     try {
       if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
       const audio = window._wpSpeakAudio;
       try { audio.pause(); } catch (_) {}
-      let i = 0;
-      let toastShown = false;
-      const fail = () => {
-        if (quiet || toastShown) return;
-        toastShown = true;
-        toast('朗读暂不可用');
-      };
-      const tryNext = () => {
-        if (i >= sources.length) {
-          fail();
-          return;
-        }
-        audio.onerror = tryNext;
-        audio.src = sources[i++];
-        const play = audio.play();
-        if (play && typeof play.catch === 'function') {
-          play.catch(tryNext);
-        }
-      };
-      tryNext();
-    } catch (_) {
-      if (!quiet) toast('朗读暂不可用');
-    }
+      // Same-origin proxy — works in WebView even when Youdao/Google are blocked on phone.
+      audio.src = '/api/tts?q=' + encodeURIComponent(w) + '&_=' + Date.now();
+      const play = audio.play();
+      if (play && typeof play.catch === 'function') {
+        play.catch(() => {
+          // Last resort: try once more without cache-buster; stay quiet if still failing.
+          try {
+            audio.src = '/api/tts?q=' + encodeURIComponent(w);
+            audio.play().catch(() => {});
+          } catch (_) {}
+        });
+      }
+    } catch (_) { /* silent — never spam 不可用 */ }
   }
 
   function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {
@@ -824,6 +803,9 @@
       allowLoadBefore: false,
       lastScrollY: 0,
       localResumeOffset: localCursor,
+      prefetchAfter: null,
+      prefetching: false,
+      serverCursorDirty: false,
     };
     await loadStudyPage('resume');
   }
@@ -1031,7 +1013,7 @@
     const list = $('#studyList');
     if (!list || !items.length) return;
     const wrap = document.createElement('div');
-    wrap.innerHTML = items.map((it) => studyRowHtml(it, { animate: true })).join('');
+    wrap.innerHTML = items.map((it) => studyRowHtml(it, { animate: false })).join('');
     [...wrap.children].forEach((n) => list.appendChild(n));
     bindStudyStarButtons(list);
     if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
@@ -1051,12 +1033,47 @@
     if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
   }
 
+  /** Keep DOM small: only ~WINDOW rows stay mounted while scrolling a large book. */
+  const STUDY_DOM_WINDOW = 72;
+
+  function trimStudyDom(direction) {
+    const s = state.study;
+    const list = $('#studyList');
+    if (!s || !list || s.items.length <= STUDY_DOM_WINDOW) return;
+
+    const drop = s.items.length - STUDY_DOM_WINDOW;
+    if (drop <= 0) return;
+
+    if (direction === 'after') {
+      // Scrolling down: drop oldest rows from top, preserve scroll position.
+      const height = document.documentElement.scrollHeight;
+      const y = window.scrollY;
+      const removed = s.items.splice(0, drop);
+      removed.forEach((it) => {
+        const el = list.querySelector(`.study-row[data-offset="${it.offset}"]`);
+        if (el) el.remove();
+      });
+      s.startOffset = Number(s.items[0]?.offset ?? s.startOffset);
+      window.scrollTo(0, Math.max(0, y - (height - document.documentElement.scrollHeight)));
+    } else if (direction === 'before') {
+      // Scrolling up: drop newest rows from bottom.
+      const removed = s.items.splice(s.items.length - drop, drop);
+      removed.forEach((it) => {
+        const el = list.querySelector(`.study-row[data-offset="${it.offset}"]`);
+        if (el) el.remove();
+      });
+      s.nextOffset = Number(s.items[s.items.length - 1]?.offset ?? s.nextOffset) + 1;
+    }
+    syncStudyBounds();
+    updateStudySentinels();
+  }
+
   function applyStudyPage(data, mode) {
     const s = state.study;
     if (!s) return [];
     const items = data.items || [];
     const pageOffset = Number(data.offset ?? 0);
-    const pageLimit = Math.max(1, Number(data.limit ?? 20));
+    const pageLimit = Math.max(1, Number(data.limit ?? 30));
     s.total = Number(data.total ?? s.total ?? 0);
     s.name = data.name || s.name;
     s.progress = data.progress || s.progress;
@@ -1131,21 +1148,31 @@
     }
 
     const seq = (s.feedSeq = (s.feedSeq || 0) + 1);
-    const pageSize = 24;
-    (s.observers || []).forEach((io) => io.disconnect());
-    s.observers = [];
+    const pageSize = 36;
     updateStudySentinels();
 
     try {
       let url = `/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}`;
       if (mode === 'after') {
+        // Use prefetched page if available.
+        if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(s.nextOffset)) {
+          const data = s.prefetchAfter;
+          s.prefetchAfter = null;
+          if (state.study !== s || seq !== s.feedSeq) return;
+          const fresh = applyStudyPage(data, 'after');
+          appendStudyRows(fresh);
+          trimStudyDom('after');
+          updateStudyProgressUi();
+          updateStudySentinels();
+          schedulePrefetchAfter();
+          return;
+        }
         url += `&offset=${s.nextOffset}`;
       } else if (mode === 'before') {
         const limit = Math.min(pageSize, s.startOffset);
         const offset = Math.max(0, s.startOffset - limit);
         url = `/api/wordbooks/${s.wordbookId}/study-feed?limit=${limit}&offset=${offset}`;
       } else if (mode === 'resume') {
-        // Open near last word index: prefer local, server may be higher (other device).
         const local = s.localResumeOffset;
         if (local != null && Number.isFinite(local) && local >= 0) {
           url += `&offset=${Math.floor(local)}`;
@@ -1163,7 +1190,6 @@
         if (totalHint) target = Math.max(0, Math.min(target, totalHint - 1));
         const pageStart = Number(data.offset ?? 0);
         const pageEnd = pageStart + (data.items || []).length;
-        // Local was behind server (or empty page) → one corrective fetch at exact index.
         if ((data.items || []).length && (target < pageStart || target >= pageEnd)) {
           data = await api(
             `/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}&offset=${target}`
@@ -1186,11 +1212,18 @@
         s.bootstrapped = true;
         s.allowLoadBefore = false;
         renderBooks();
+        schedulePrefetchAfter();
         return;
       }
 
-      if (mode === 'after') appendStudyRows(fresh);
-      else if (mode === 'before') prependStudyRows(fresh);
+      if (mode === 'after') {
+        appendStudyRows(fresh);
+        trimStudyDom('after');
+        schedulePrefetchAfter();
+      } else if (mode === 'before') {
+        prependStudyRows(fresh);
+        trimStudyDom('before');
+      }
       updateStudyProgressUi();
       updateStudySentinels();
     } catch (e) {
@@ -1200,13 +1233,26 @@
         if (mode === 'before') s.loadingBefore = false;
         else s.loadingAfter = false;
         updateStudySentinels();
-        if (mode !== 'resume' && s.bootstrapped) {
-          setTimeout(() => {
-            if (state.study === s) attachStudyObservers();
-          }, 80);
-        }
       }
     }
+  }
+
+  function schedulePrefetchAfter() {
+    const s = state.study;
+    if (!s || !s.hasMoreAfter || s.prefetching || s.loadingAfter) return;
+    const next = s.nextOffset;
+    if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(next)) return;
+    s.prefetching = true;
+    const pageSize = 36;
+    api(`/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}&offset=${next}`)
+      .then((data) => {
+        if (state.study !== s) return;
+        if (Number(data.offset) === Number(s.nextOffset)) s.prefetchAfter = data;
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (state.study === s) s.prefetching = false;
+      });
   }
 
   function visibleStudyCursor() {
@@ -1254,14 +1300,19 @@
     const s = state.study;
     if (!s) return;
     clearTimeout(s.cursorTimer);
-    // Local index is instant; server sync can wait a bit longer to cut Neon writes.
+    // Local index is instant; avoid Neon writes while finger is scrolling.
     const cursor = s.pinActiveOffset != null ? Number(s.pinActiveOffset) : visibleStudyCursor();
     if (Number.isFinite(cursor)) {
       writeLocalStudyCursor(s.wordbookId, cursor);
       s.lastSavedCursor = Math.floor(cursor);
+      s.serverCursorDirty = true;
       updateStudyProgressUi();
     }
-    s.cursorTimer = setTimeout(() => saveStudyCursor(false), 700);
+    s.cursorTimer = setTimeout(() => {
+      if (!s.serverCursorDirty) return;
+      s.serverCursorDirty = false;
+      saveStudyCursor(true);
+    }, 2500);
   }
 
   function attachStudyObservers() {
@@ -1281,7 +1332,7 @@
       const io = new IntersectionObserver((entries) => {
         if (!entries.some((en) => en.isIntersecting)) return;
         loadStudyPage(mode);
-      }, { rootMargin: mode === 'after' ? '120px' : '24px', threshold: 0 });
+      }, { rootMargin: mode === 'after' ? '280px' : '40px', threshold: 0 });
       io.observe(el);
       s.observers.push(io);
     };
@@ -1290,22 +1341,29 @@
     if (s.hasMoreAfter) watch($('#studySentinelBottom'), 'after');
 
     s.lastScrollY = window.scrollY;
+    let scrollRaf = 0;
     s.onScroll = () => {
-      const y = window.scrollY;
-      // User scrolled up → allow loading earlier words.
-      if (y + 8 < (s.lastScrollY || 0)) {
-        if (!s.allowLoadBefore) {
-          s.allowLoadBefore = true;
-          updateStudySentinels();
-          watch($('#studySentinelTop'), 'before');
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = 0;
+        const y = window.scrollY;
+        if (y + 8 < (s.lastScrollY || 0)) {
+          if (!s.allowLoadBefore) {
+            s.allowLoadBefore = true;
+            updateStudySentinels();
+            watch($('#studySentinelTop'), 'before');
+          }
         }
-      }
-      s.lastScrollY = y;
-      syncActiveStudyRowFromScroll();
-      scheduleSaveStudyCursor();
+        s.lastScrollY = y;
+        syncActiveStudyRowFromScroll();
+        scheduleSaveStudyCursor();
+        // Warm next page early while user is still reading.
+        if (s.hasMoreAfter && !s.prefetchAfter && !s.prefetching) schedulePrefetchAfter();
+      });
     };
     window.addEventListener('scroll', s.onScroll, { passive: true });
     syncActiveStudyRowFromScroll();
+    schedulePrefetchAfter();
   }
 
   function scrollToResumeWord() {

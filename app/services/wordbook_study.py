@@ -253,6 +253,29 @@ def _upsert_memory_word(
         )
 
 
+def progress_payload_fast(memory: models.WordBookMemory, total: int) -> dict:
+    """Progress from in-memory fields only — no extra DB/catalog hits (scroll hot path)."""
+    total_n = int(total or memory.total_count or 0)
+    cursor = int(memory.cursor_offset or 0)
+    marked = int(memory.known_count or 0) + int(memory.unknown_count or 0)
+    if total_n and (cursor or marked):
+        display_pos = min(total_n, max(cursor + 1, marked))
+    else:
+        display_pos = 0
+    percent = round((display_pos / total_n) * 100, 1) if total_n else 0.0
+    completed = bool(total_n and cursor >= total_n - 1 and display_pos >= total_n)
+    return {
+        "total": total_n,
+        "learned": memory.known_count,
+        "unknown": memory.unknown_count,
+        "cursor": cursor,
+        "percent": percent,
+        "label": f"{display_pos} / {total_n}",
+        "completed": completed,
+        "last_studied_at": memory.last_studied_at.isoformat() if memory.last_studied_at else None,
+    }
+
+
 def study_feed(
     session: Session,
     wordbook_id: int,
@@ -282,7 +305,7 @@ def study_feed(
         session.commit()
         session.refresh(memory)
 
-    limit = max(1, min(50, limit))
+    limit = max(1, min(80, limit))
     # Browse by absolute offset; omit offset → open at saved resume position.
     # Clamp so we never land on an empty "past the end" page.
     if offset is None:
@@ -355,6 +378,12 @@ def study_feed(
         ]
 
     end = start + len(items)
+    # Scroll pages: cheap progress (no second catalog/JSON count).
+    if offset is None:
+        progress = progress_payload(session, memory)
+    else:
+        progress = progress_payload_fast(memory, total)
+
     return {
         "wordbook_id": wordbook_id,
         "name": book.name,
@@ -362,7 +391,7 @@ def study_feed(
         "offset": start,
         "limit": limit,
         "total": total,
-        "progress": progress_payload(session, memory),
+        "progress": progress,
         "resume_offset": int(memory.cursor_offset or 0),
         "has_more": end < total,
         "has_more_after": end < total,

@@ -220,6 +220,54 @@ def app_version():
     return _load_app_version()
 
 
+@app.get("/api/tts")
+def proxy_english_tts(q: str = ""):
+    """Same-origin English TTS audio for WebView (avoids blocked third-party hosts)."""
+    import urllib.parse
+    import urllib.request
+
+    from fastapi.responses import Response
+
+    word = (q or "").strip()
+    if not word or len(word) > 80:
+        return JSONResponse({"detail": "invalid word"}, status_code=400)
+    # Prefer Youdao (CN-friendly); fallback Google translate TTS.
+    candidates = [
+        "https://dict.youdao.com/dictvoice?type=2&audio=" + urllib.parse.quote(word),
+        "https://dict.youdao.com/dictvoice?type=1&audio=" + urllib.parse.quote(word),
+        "https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q="
+        + urllib.parse.quote(word),
+    ]
+    last_err = "tts unavailable"
+    for url in candidates:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 WordPopTTS/1.0",
+                    "Accept": "*/*",
+                    "Referer": "https://dict.youdao.com/",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read()
+                ctype = resp.headers.get("Content-Type") or "audio/mpeg"
+            if not data or len(data) < 64:
+                continue
+            return Response(
+                content=data,
+                media_type=ctype.split(";")[0].strip() or "audio/mpeg",
+                headers={
+                    "Cache-Control": "public, max-age=86400",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        except Exception as e:
+            last_err = str(e)
+            continue
+    return JSONResponse({"detail": last_err}, status_code=502)
+
+
 app.include_router(auth.router)
 app.include_router(videos.router)
 app.include_router(readings.router)

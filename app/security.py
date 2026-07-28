@@ -198,9 +198,12 @@ def is_public_api_path(path: str) -> bool:
         "/api/health",
         "/api/app-shell",
         "/api/app-version",
+        "/api/tts",
         "/api/auth/login",
         "/api/auth/register",
     }:
+        return True
+    if path.startswith("/api/tts"):
         return True
     if path.startswith("/api/pk/ws/"):
         return True

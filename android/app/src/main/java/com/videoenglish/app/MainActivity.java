@@ -392,14 +392,25 @@ public class MainActivity extends AppCompatActivity {
                         Log.w("DictionaryBridge", "TTS not ready, queued speak: " + text);
                         return;
                     }
-                    Log.w("DictionaryBridge", "TTS unavailable, drop speak: " + text);
+                    // Native TTS failed permanently → fall back to same-origin /api/tts in JS.
+                    Log.w("DictionaryBridge", "TTS unavailable, JS fallback: " + text);
+                    String escaped = text
+                            .replace("\\", "\\\\")
+                            .replace("'", "\\'")
+                            .replace("\n", " ")
+                            .replace("\r", " ");
+                    webView.evaluateJavascript(
+                            "try{if(window.__wpSpeakFallback)window.__wpSpeakFallback('" + escaped + "');}catch(e){}",
+                            null
+                    );
                 }
             });
         }
 
         @JavascriptInterface
         public boolean isTtsAvailable() {
-            return ttsReady || !ttsInitDone;
+            // Always true from JS perspective: speak() will queue or JS-fallback.
+            return true;
         }
 
         @JavascriptInterface
