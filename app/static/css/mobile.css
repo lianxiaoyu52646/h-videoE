@@ -253,9 +253,22 @@ button, input, select, textarea { font: inherit; }
   border: 1px solid var(--stroke);
   margin-bottom: 8px;
   box-shadow: 0 4px 12px rgba(31, 36, 48, 0.04);
-  transition: transform 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  /* Avoid scroll jump when row scales on touch */
+  overflow-anchor: none;
 }
-.m-list-item:active { transform: scale(0.985); }
+.m-list-item:active {
+  background: #f7fafc;
+  border-color: rgba(90, 60, 120, 0.16);
+}
+/* Tapping 喇叭/移出 must NOT scale the whole row (was causing page shake). */
+.m-list-item:has(.speak-btn:active),
+.m-list-item:has(.remove-btn:active),
+.m-list-item:has([data-speak-word]:active),
+.m-list-item:has(button:active) {
+  background: #fff;
+  border-color: var(--stroke);
+}
 .m-list-item strong {
   display: block;
   font-family: var(--font-display);
@@ -743,11 +756,17 @@ body.eyecare .reader-zh { color: #3d5c45; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
+  /* No overshoot spring — was visually shaking the vocab page */
+  transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
   padding: 0;
   flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
-.speak-btn:active { transform: scale(0.9); }
+.speak-btn:active {
+  transform: scale(0.96);
+  background: linear-gradient(180deg, #eef8ff, #dff3ff);
+}
 .speak-btn-sm {
   width: 40px;
   height: 40px;
@@ -782,17 +801,19 @@ body.eyecare .reader-zh { color: #3d5c45; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.15s ease;
+  transition: transform 0.1s ease, background 0.15s ease;
   padding: 0;
   flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
+.remove-btn:active { transform: scale(0.96); }
 .remove-btn.speak-btn-sm {
   width: 40px;
   height: 40px;
   border-radius: 14px;
   font-size: 0.95rem;
 }
-.remove-btn:active { transform: scale(0.9); }
 .m-word-head {
   display: flex;
   align-items: center;
@@ -811,6 +832,7 @@ body.eyecare .reader-zh { color: #3d5c45; }
   justify-content: center;
   gap: 12px;
   margin-bottom: 8px;
+  min-height: 52px;
 }
 .flash-word-row .flash-word { margin-bottom: 0; }
 .study-row.is-new {
@@ -896,6 +918,7 @@ body.eyecare .reader-zh { color: #3d5c45; }
   padding: 28px 16px;
   margin-bottom: 14px;
   animation: heroIn 0.35s ease both;
+  overflow-anchor: none;
 }
 .flash-word {
   font-family: var(--font-display);

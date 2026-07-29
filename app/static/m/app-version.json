@@ -1,7 +1,7 @@
 {
-  "web_content_version": "20260729.1",
+  "web_content_version": "20260729.3",
   "android_version_code": 2,
   "android_version_name": "1.0.1",
   "android_apk_url": "",
-  "notes": "修复小喇叭无声"
+  "notes": "生词喇叭点击防抖动"
 }
