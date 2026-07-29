@@ -2156,15 +2156,13 @@
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
-    // Keep focus from jumping / scrolling the page when tapping 喇叭.
-    try { btn.blur(); } catch (_) {}
-    const y = window.scrollY;
     const word = btn.getAttribute('data-speak-word') || btn.dataset.speakWord || '';
-    speakWord(word);
-    // Restore scroll if WebView media focus nudged the page.
-    if (window.scrollY !== y) {
-      window.scrollTo(0, y);
+    // Avoid focus-driven scrollIntoView jump on mobile WebView.
+    if (typeof btn.focus === 'function') {
+      try { btn.focus({ preventScroll: true }); } catch (_) {}
     }
+    try { btn.blur(); } catch (_) {}
+    speakWord(word);
   }, true);
 
   async function boot() {

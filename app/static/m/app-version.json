@@ -1,7 +1,7 @@
 {
-  "web_content_version": "20260729.3",
+  "web_content_version": "20260729.4",
   "android_version_code": 2,
   "android_version_name": "1.0.1",
   "android_apk_url": "",
-  "notes": "生词喇叭点击防抖动"
+  "notes": "去掉生词卡片按压缩放导致的抖动"
 }

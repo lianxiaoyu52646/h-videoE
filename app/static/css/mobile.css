@@ -170,9 +170,12 @@ button, input, select, textarea { font: inherit; }
   box-shadow: var(--shadow-soft);
   margin-bottom: 12px;
   backdrop-filter: blur(8px);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease;
+  overflow-anchor: none;
 }
-.m-card:active { transform: scale(0.995); }
+/* Do NOT scale .m-card on :active — tapping 喇叭 inside scales the whole
+   生词本 card and looks like the page jumps down then snaps back. */
+.m-card:active { transform: none; }
 .m-card h2, .m-card h3 {
   margin: 0 0 10px;
   font-family: var(--font-display);
@@ -1346,6 +1349,12 @@ body.eyecare .reader-zh { color: #3d5c45; }
   transform: translateX(-50%) translateY(0);
 }
 
+#view-vocab,
+#view-vocab .m-card,
+#view-vocab .m-list-item,
+#view-vocab .flash-card {
+  overflow-anchor: none;
+}
 .view { display: none; }
 .view.active {
   display: block;
