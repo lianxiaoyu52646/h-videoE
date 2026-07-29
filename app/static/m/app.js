@@ -65,48 +65,14 @@
       .replace(/"/g, '&quot;');
   }
 
-  /** Word TTS: native bridge → Web Speech → same-origin /api/tts (no third-party). */
+  /** Word TTS: same-origin /api/tts first — never silent-return on Android bridge alone. */
   function speakWord(word) {
     const w = String(word || '').trim();
     if (!w) {
       toast('没有可朗读的单词');
       return;
     }
-
-    // 1) Android bridge: always hand off. Never fall through (avoids "不可用" toasts).
-    try {
-      const bridge = window.AndroidDictionary;
-      if (bridge && typeof bridge.speak === 'function') {
-        bridge.speak(w);
-        // If native TTS permanently failed, Java may call __wpSpeakFallback.
-        return;
-      }
-    } catch (_) { /* fall through */ }
-
-    // 2) Browser Web Speech
-    if ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance !== 'undefined') {
-      try {
-        window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(w);
-        u.lang = 'en-US';
-        u.rate = 0.9;
-        const voices = window.speechSynthesis.getVoices() || [];
-        const en = voices.find((v) => (v.lang || '').toLowerCase().startsWith('en')) || null;
-        if (en) u.voice = en;
-        let fellBack = false;
-        const toAudio = () => {
-          if (fellBack) return;
-          fellBack = true;
-          speakViaServerTts(w);
-        };
-        u.onerror = toAudio;
-        setTimeout(() => {
-          try { window.speechSynthesis.speak(u); } catch (_) { toAudio(); }
-        }, 0);
-        return;
-      } catch (_) { /* fall through */ }
-    }
-
+    // Guaranteed audible path for App WebView (old APK used to swallow speak() and return).
     speakViaServerTts(w);
   }
 
@@ -117,23 +83,41 @@
   function speakViaServerTts(word) {
     const w = String(word || '').trim();
     if (!w) return;
+    const sources = [
+      '/api/tts?q=' + encodeURIComponent(w),
+      'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(w),
+      'https://dict.youdao.com/dictvoice?type=1&audio=' + encodeURIComponent(w),
+    ];
     try {
       if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
       const audio = window._wpSpeakAudio;
       try { audio.pause(); } catch (_) {}
-      // Same-origin proxy — works in WebView even when Youdao/Google are blocked on phone.
-      audio.src = '/api/tts?q=' + encodeURIComponent(w) + '&_=' + Date.now();
-      const play = audio.play();
-      if (play && typeof play.catch === 'function') {
-        play.catch(() => {
-          // Last resort: try once more without cache-buster; stay quiet if still failing.
-          try {
-            audio.src = '/api/tts?q=' + encodeURIComponent(w);
-            audio.play().catch(() => {});
-          } catch (_) {}
-        });
-      }
-    } catch (_) { /* silent — never spam 不可用 */ }
+      let i = 0;
+      const tryNative = () => {
+        try {
+          const bridge = window.AndroidDictionary;
+          if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
+        } catch (_) {}
+      };
+      const tryNext = () => {
+        if (i >= sources.length) {
+          // Last resort: system TTS on device.
+          tryNative();
+          return;
+        }
+        const src = sources[i++];
+        audio.onerror = tryNext;
+        audio.src = src;
+        const play = audio.play();
+        if (play && typeof play.catch === 'function') play.catch(tryNext);
+      };
+      tryNext();
+    } catch (_) {
+      try {
+        const bridge = window.AndroidDictionary;
+        if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
+      } catch (__) {}
+    }
   }
 
   function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {

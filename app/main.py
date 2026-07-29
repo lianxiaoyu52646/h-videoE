@@ -223,6 +223,8 @@ def app_version():
 @app.get("/api/tts")
 def proxy_english_tts(q: str = ""):
     """Same-origin English TTS audio for WebView (avoids blocked third-party hosts)."""
+    import ssl
+    import urllib.error
     import urllib.parse
     import urllib.request
 
@@ -231,25 +233,27 @@ def proxy_english_tts(q: str = ""):
     word = (q or "").strip()
     if not word or len(word) > 80:
         return JSONResponse({"detail": "invalid word"}, status_code=400)
-    # Prefer Youdao (CN-friendly); fallback Google translate TTS.
+
     candidates = [
         "https://dict.youdao.com/dictvoice?type=2&audio=" + urllib.parse.quote(word),
         "https://dict.youdao.com/dictvoice?type=1&audio=" + urllib.parse.quote(word),
-        "https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q="
-        + urllib.parse.quote(word),
     ]
+    ctx = ssl.create_default_context()
     last_err = "tts unavailable"
     for url in candidates:
         try:
             req = urllib.request.Request(
                 url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 WordPopTTS/1.0",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                    ),
                     "Accept": "*/*",
-                    "Referer": "https://dict.youdao.com/",
+                    "Referer": "https://www.youdao.com/",
                 },
             )
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
                 data = resp.read()
                 ctype = resp.headers.get("Content-Type") or "audio/mpeg"
             if not data or len(data) < 64:
