@@ -749,27 +749,34 @@
     } catch (e) { toast(e.message); }
   }
 
+  function chapterBlocksNeedTranslate(blocks) {
+    return (blocks || []).some((b) => !(b.translation || '').trim());
+  }
+
   async function openReader(docId) {
     try {
       const boot = await api(`/api/readings/${docId}/bootstrap?limit=80&include_annotations=false`);
       const chapters = boot.chapters || [];
       const chapterIndex = Number(boot.chapter_index || 0);
       const chapter = chapters[chapterIndex] || null;
+      const blocks = boot.blocks || [];
       state.reader = {
         doc: boot.doc || { id: docId },
         chapters,
         chapterIndex,
         chapter,
-        blocks: boot.blocks || [],
+        blocks,
         chapterOffset: 0,
-        hasMore: !!(boot.has_more_blocks ?? ((boot.blocks || []).length >= 80)),
+        hasMore: !!(boot.has_more_blocks ?? (blocks.length >= 80)),
         loadingMore: false,
         showToc: false,
         translatePoll: 0,
         progressTimer: null,
       };
-      requestChapterTranslate(docId, chapterIndex, true);
-      pollReaderTranslations(docId);
+      if (chapterBlocksNeedTranslate(blocks)) {
+        requestChapterTranslate(docId, chapterIndex, true);
+        pollReaderTranslations(docId);
+      }
       renderRead();
       // Resume near last block inside chapter if possible
       const resumeBlock = Number(boot.doc?.last_block_index || 0);
@@ -812,19 +819,21 @@
     const chapter = (r.chapters || [])[idx];
     if (!chapter) return;
     try {
-      toast('切换章节…');
       const page = await api(
         `/api/readings/${r.doc.id}/chapters/${idx}/blocks?offset=0&limit=80`,
       );
+      const items = page.items || [];
       r.chapterIndex = idx;
       r.chapter = page.chapter || chapter;
-      r.blocks = page.items || [];
+      r.blocks = items;
       r.chapterOffset = 0;
-      r.hasMore = !!(page.has_more ?? ((page.items || []).length >= 80));
+      r.hasMore = !!(page.has_more ?? (items.length >= 80));
       r.showToc = false;
       r.loadingMore = false;
-      requestChapterTranslate(r.doc.id, idx, true);
-      pollReaderTranslations(r.doc.id);
+      if (chapterBlocksNeedTranslate(items)) {
+        requestChapterTranslate(r.doc.id, idx, true);
+        pollReaderTranslations(r.doc.id);
+      }
       if (saveProgress) scheduleSaveProgress(r.chapter.start_block || 0);
       renderRead();
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -834,6 +843,7 @@
   async function pollReaderTranslations(docId) {
     const r = state.reader;
     if (!r || r.doc.id !== docId) return;
+    if (!chapterBlocksNeedTranslate(r.blocks)) return;
     const token = (r.translatePoll || 0) + 1;
     r.translatePoll = token;
     const chapterIndex = r.chapterIndex;
@@ -879,8 +889,10 @@
       if (items.length) {
         r.blocks = r.blocks.concat(items);
         r.hasMore = !!(page.has_more ?? (items.length >= 80));
-        // Prefetch translate for newly visible absolute range via chapter job
-        requestChapterTranslate(r.doc.id, r.chapterIndex, true);
+        if (chapterBlocksNeedTranslate(items)) {
+          requestChapterTranslate(r.doc.id, r.chapterIndex, true);
+          pollReaderTranslations(r.doc.id);
+        }
         if (state.tab === 'read') renderRead();
       } else {
         r.hasMore = false;

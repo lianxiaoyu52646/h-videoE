@@ -412,12 +412,13 @@ body.eyecare .reader-zh { color: #3d5c45; }
 }
 .toc-drawer {
   position: fixed;
-  top: max(10vh, 48px);
+  top: 16vh;
   right: 12px;
-  bottom: max(10vh, 48px);
+  bottom: auto;
   width: min(86vw, 360px);
-  height: auto;
-  max-height: 80vh;
+  height: 62vh;
+  max-height: 520px;
+  min-height: 280px;
   background: linear-gradient(180deg, #fff9f4, #ffffff);
   border: 1px solid var(--stroke);
   border-radius: 20px;

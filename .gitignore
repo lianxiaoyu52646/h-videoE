@@ -21,3 +21,7 @@ node_modules/
 # Large local/mobile assets (generate or copy locally)
 android/app/src/main/assets/wordbooks/
 android/app/src/main/assets/books/
+
+# Built APKs (too large for GitHub; keep locally)
+*.apk
+android/*.apk

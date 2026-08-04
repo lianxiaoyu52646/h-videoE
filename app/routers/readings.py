@@ -382,7 +382,6 @@ async def reading_bootstrap(
     chapter_idx = chapter_for_block(chapters, doc.last_block_index or 0)
     chapter = chapters[chapter_idx] if chapters else None
     if chapter:
-        reading_cache.warm_doc(session, doc_id, first_pages=2)
         _, blocks, chapter_total = crud.get_reading_chapter_blocks_page(
             session,
             doc_id,
@@ -390,9 +389,31 @@ async def reading_bootstrap(
             offset=0,
             limit=limit,
         )
+        try:
+            from app.services import book_shared
+
+            book_shared.hydrate_document_range(
+                session,
+                doc_id,
+                int(chapter.start_block or 0),
+                int(chapter.end_block or 0),
+            )
+            _, blocks, chapter_total = crud.get_reading_chapter_blocks_page(
+                session,
+                doc_id,
+                chapter_idx,
+                offset=0,
+                limit=limit,
+            )
+        except Exception:
+            pass
+        reading_cache.warm_doc(session, doc_id, first_pages=2)
     else:
         blocks, chapter_total = [], 0
-    _start_chapter_translate(doc_id, chapter_idx, prefetch_next=True)
+    # Skip Youdao/chapter job when shared ZH already fills the first page
+    needs_translate = any(not (getattr(b, "translation", None) or "").strip() for b in blocks)
+    if needs_translate:
+        _start_chapter_translate(doc_id, chapter_idx, prefetch_next=True)
     highlights = crud.list_highlights(session, doc_id) if include_annotations else []
     notes_raw = crud.list_notes(session, doc_id) if include_annotations else []
     notes = (
