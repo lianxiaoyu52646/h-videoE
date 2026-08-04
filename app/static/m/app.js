@@ -2637,6 +2637,14 @@
 
     $('#view-mine').innerHTML = `
       <div class="m-hero"><h1>我的</h1><p>账号与阅读偏好</p></div>
+      <div class="m-card novel-log-card" id="novelLogCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+          <h2 style="margin:0;font-size:1.05rem;">翻译调试日志</h2>
+          <button class="m-btn m-btn-ghost" id="copyNovelLogBtn" type="button" style="padding:4px 10px;font-size:0.78rem;">复制日志</button>
+        </div>
+        <p class="m-muted" style="margin:0 0 8px;font-size:0.78rem;">点「继续翻译」后这里会实时滚动输出。若为空说明还在用旧缓存页面。</p>
+        <pre id="novelTranslateLog" class="novel-translate-log">${escapeHtml((bt.logs || []).slice(-120).join('\n') || '等待开始翻译…')}</pre>
+      </div>
       <div class="m-card">
         <div style="display:flex;align-items:center;gap:14px;">
           <div class="m-logo" style="width:56px;height:56px;font-size:1.6rem;border-radius:20px;">🫧</div>
@@ -2669,13 +2677,6 @@
           <button class="m-btn m-btn-primary" id="startTranslateBtn" type="button" ${bt.phase === 'downloading' || (bt.loading && !running) ? 'disabled' : ''}>
             ${cta}
           </button>
-        </div>
-        <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,0,0,0.08);">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
-            <strong style="font-size:0.9rem;">翻译调试日志（可复制）</strong>
-            <button class="m-btn m-btn-ghost" id="copyNovelLogBtn" type="button" style="padding:4px 10px;font-size:0.78rem;">复制日志</button>
-          </div>
-          <pre id="novelTranslateLog" style="margin:0;max-height:220px;overflow:auto;padding:10px;border-radius:12px;background:#111;color:#d7ffd7;font-size:0.72rem;line-height:1.4;white-space:pre-wrap;word-break:break-word;">${escapeHtml((bt.logs || []).slice(-120).join('\n') || '点击「继续翻译」后，这里会实时输出领取/下载/译段/落库日志…')}</pre>
         </div>
       </div>
       <div class="m-card">

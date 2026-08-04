@@ -1,9 +1,9 @@
 {
-  "web_content_version": "20260804.4",
+  "web_content_version": "20260804.5",
   "android_version_code": 3,
   "android_version_name": "1.0.2",
   "android_apk_url": "",
   "android_novel_model_url": "https://www.modelscope.cn/models/qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf",
   "android_novel_model_name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-  "notes": "下载模型正确提示；翻译日志常显；本地续译不断开；已完成按整本计数"
+  "notes": "修复我的页日志区：刷新 index 缓存参数，日志卡片置顶常显"
 }

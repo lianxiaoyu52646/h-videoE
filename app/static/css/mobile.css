@@ -554,6 +554,25 @@ body.eyecare .reader-zh { color: #3d5c45; }
   pointer-events: none;
 }
 
+.novel-log-card {
+  border: 2px solid rgba(255, 92, 138, 0.35) !important;
+}
+.novel-translate-log {
+  display: block;
+  margin: 0;
+  min-height: 140px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 12px;
+  background: #111 !important;
+  color: #d7ffd7 !important;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Wordbook list — one book per full row */
 .wb-hero { margin-bottom: 14px; }
 .wb-list {
