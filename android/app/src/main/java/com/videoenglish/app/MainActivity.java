@@ -2,6 +2,7 @@ package com.videoenglish.app;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -37,11 +38,13 @@ import com.google.android.gms.tasks.OnFailureListener;
 
 import com.videoenglish.app.novel.NovelModelStore;
 import com.videoenglish.app.novel.NovelTranslator;
+import com.videoenglish.app.novel.NovelTranslateService;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements NovelTranslateService.EventSink {
 
     private static final String TAG = "MainActivity";
     private static final String APP_ENTRY_URL = "https://wordpop-xyh7.onrender.com/app";
+    private static final String APP_ORIGIN = "https://wordpop-xyh7.onrender.com";
 
     private WebView webView;
     private DictionaryDatabaseHelper dbHelper;
@@ -97,6 +100,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl(APP_ENTRY_URL);
+        NovelTranslateService.setEventSink(this);
 
         tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
             @Override
@@ -123,6 +127,12 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        NovelTranslateService.setEventSink(this);
     }
 
     private void speakNow(String word) {
@@ -329,6 +339,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        NovelTranslateService.setEventSink(null);
         super.onDestroy();
         bg.shutdownNow();
         if (dbHelper != null) {
@@ -338,12 +349,30 @@ public class MainActivity extends AppCompatActivity {
             tts.stop();
             tts.shutdown();
         }
-        if (novelTranslator != null) {
+        // Keep translator if background service is running.
+        if (novelTranslator != null && !NovelTranslateService.isRunning()) {
             novelTranslator.release();
         }
         if (enToZhTranslator != null) {
             enToZhTranslator.close();
         }
+    }
+
+    @Override
+    public void onNovelTranslateEvent(final String json) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (webView == null) return;
+                String payload = json == null ? "{}" : json;
+                // Pass raw JSON object to JS.
+                webView.evaluateJavascript(
+                        "try{if(window.onNovelTranslateServiceEvent)window.onNovelTranslateServiceEvent("
+                                + payload + ");}catch(e){console.error(e);}",
+                        null
+                );
+            }
+        });
     }
 
     private void notifyNovelCallback(final String callbackId, final String resultJson) {
@@ -590,6 +619,40 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             });
+        }
+
+        /** Start foreground service loop (survives screen-off / other apps). */
+        @JavascriptInterface
+        public boolean startNovelTranslateService(String modelUrl, String modelName) {
+            try {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 9911);
+                    }
+                }
+                NovelTranslateService.start(
+                        MainActivity.this,
+                        APP_ORIGIN,
+                        modelUrl == null ? "" : modelUrl,
+                        modelName == null ? NovelModelStore.DEFAULT_NAME : modelName,
+                        8
+                );
+                return true;
+            } catch (Exception e) {
+                Log.e(TAG, "startNovelTranslateService failed", e);
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public void stopNovelTranslateService() {
+            NovelTranslateService.stop(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public boolean isNovelTranslateServiceRunning() {
+            return NovelTranslateService.isRunning();
         }
     }
 

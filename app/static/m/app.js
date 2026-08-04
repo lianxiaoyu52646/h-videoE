@@ -2368,11 +2368,15 @@
       return;
     }
 
-    // Reading module: prefer on-device claim/submit loop whenever native translate exists.
+    // Reading module: prefer native foreground service (survives screen-off).
     if (useLocal || nativeApkMeta().isApp) {
       if (!useLocal) {
         toast('当前 App 缺少翻译接口，请更新 App');
         novelLog('E', 'job.no_translate_bridge');
+        return;
+      }
+      if (bridge && typeof bridge.startNovelTranslateService === 'function') {
+        await startNativeTranslateService();
         return;
       }
       await startLocalBookTranslateLoop();
@@ -2590,10 +2594,109 @@
     }
   }
 
+  async function startNativeTranslateService() {
+    const bt = state.bookTranslate;
+    const bridge = nativeBridge();
+    if (!bridge || typeof bridge.startNovelTranslateService !== 'function') {
+      throw new Error('当前 App 不支持后台翻译服务，请更新 App');
+    }
+    if (bt.localRunning || (typeof bridge.isNovelTranslateServiceRunning === 'function' && bridge.isNovelTranslateServiceRunning())) {
+      toast('翻译已在后台运行');
+      return;
+    }
+    const ver = cachedAppVersion || (await fetchAppVersion().catch(() => null));
+    const modelUrl = (ver && ver.android_novel_model_url) || '';
+    const modelName = (ver && ver.android_novel_model_name) || 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
+
+    bt.localAbort = false;
+    bt.clientChain = false;
+    bt.localRunning = true;
+    bt.running = true;
+    bt.loading = false;
+    bt.phase = 'loading';
+    novelLog('I', 'service.start', { modelName, hasUrl: !!modelUrl, apk: nativeApkMeta() });
+    setTranslatePhase('loading', '已启动前台翻译服务（熄屏/切走也会继续）…');
+    renderMine();
+
+    const ok = bridge.startNovelTranslateService(modelUrl, modelName);
+    if (!ok) {
+      bt.localRunning = false;
+      bt.running = false;
+      bt.phase = 'idle';
+      novelLog('E', 'service.start_fail');
+      toast('启动后台翻译失败');
+      renderMine();
+      return;
+    }
+    toast('后台翻译已启动：切走 App / 熄屏也会继续');
+    startBookTranslatePoll();
+  }
+
+  function handleNovelTranslateServiceEvent(payload) {
+    const bt = state.bookTranslate;
+    if (!payload) return;
+    const level = payload.level || 'I';
+    const event = payload.event || 'service.event';
+    novelLog(level, event, payload.detail || null);
+
+    if (event === 'model.download' && payload.detail && typeof payload.detail.percent === 'number') {
+      bt.phase = 'downloading';
+      bt.modelPercent = payload.detail.percent;
+      setTranslatePhase('downloading', `正在下载小说翻译模型 ${payload.detail.percent}%`);
+      return;
+    }
+    if (event === 'model.ready') {
+      bt.modelPercent = null;
+      bt.engine = (payload.detail && payload.detail.engine) || bt.engine;
+      bt.phase = 'translating';
+      setTranslatePhase('translating', '模型就绪，后台逐段翻译中…');
+      return;
+    }
+    if (event === 'claim.result' || event === 'para.ok' || event === 'submit.ok') {
+      bt.phase = 'translating';
+      const d = payload.detail || {};
+      if (d.title || d.book) bt.currentTitle = d.title || d.book;
+      if (typeof d.doneBooks === 'number' || typeof d.pendingBooks === 'number') {
+        bt.scan = {
+          ...(bt.scan || {}),
+          done_books: d.doneBooks ?? bt.scan?.done_books,
+          pending_books: d.pendingBooks ?? bt.scan?.pending_books,
+          total_books: d.totalBooks ?? bt.scan?.total_books,
+        };
+      }
+      const msg = event === 'submit.ok'
+        ? `后台已落库 +${d.saved || 0} · 已完成书 ${d.doneBooks ?? '?'} / ${d.totalBooks ?? '?'}`
+        : (event === 'para.ok'
+          ? `后台已译段 #${d.order ?? '?'} · ${bt.currentTitle || ''}`
+          : `后台领取 ${d.items || 0} 段 · ${d.title || d.book || ''}`);
+      setTranslatePhase('translating', msg);
+      return;
+    }
+    if (event === 'service.done' || event === 'service.loop_end' || event === 'service.fatal') {
+      bt.localRunning = false;
+      bt.running = false;
+      bt.loading = false;
+      bt.modelPercent = null;
+      bt.phase = 'idle';
+      const doneMsg = (payload.detail && payload.detail.message) || (event === 'service.fatal' ? '后台翻译异常结束' : '后台翻译已结束');
+      toast(doneMsg);
+      refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
+      if (state.tab === 'mine') renderMine();
+    }
+  }
+
+  window.onNovelTranslateServiceEvent = handleNovelTranslateServiceEvent;
+
   function stopLocalBookTranslate() {
     novelLog('I', 'loop.stop_requested');
     state.bookTranslate.localAbort = true;
     state.bookTranslate.clientChain = false;
+    try {
+      const bridge = nativeBridge();
+      if (bridge && typeof bridge.stopNovelTranslateService === 'function') {
+        bridge.stopNovelTranslateService();
+      }
+    } catch (_) {}
     setTranslatePhase('stopping', '正在停止翻译…');
     toast('正在停止…');
   }
