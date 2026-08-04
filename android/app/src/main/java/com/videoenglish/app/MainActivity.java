@@ -35,6 +35,9 @@ import com.google.mlkit.nl.translate.TranslateLanguage;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.OnFailureListener;
 
+import com.videoenglish.app.novel.NovelModelStore;
+import com.videoenglish.app.novel.NovelTranslator;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
@@ -49,9 +52,11 @@ public class MainActivity extends AppCompatActivity {
     private final java.util.ArrayDeque<String> pendingSpeak = new java.util.ArrayDeque<>();
     private Translator enToZhTranslator;
     private boolean translatorReady = false;
+    private NovelTranslator novelTranslator;
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private volatile boolean apkDownloading = false;
+    private volatile boolean modelDownloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +66,8 @@ public class MainActivity extends AppCompatActivity {
         dbHelper = new DictionaryDatabaseHelper(this);
         Log.d(TAG, "Dictionary ready: " + dbHelper.isReady() + ", word count: " + dbHelper.getWordCount());
 
+        novelTranslator = new NovelTranslator(this);
+        novelTranslator.prepare(NovelModelStore.DEFAULT_NAME);
         initTranslator();
 
         webView = findViewById(R.id.webView);
@@ -287,6 +294,10 @@ public class MainActivity extends AppCompatActivity {
                     public void onSuccess(Void aVoid) {
                         translatorReady = true;
                         Log.d(TAG, "ML Kit translator ready");
+                        if (novelTranslator != null) {
+                            novelTranslator.setMlKitFallback(enToZhTranslator);
+                            novelTranslator.prepare(NovelModelStore.DEFAULT_NAME);
+                        }
                         notifyTranslatorReady();
                     }
                 })
@@ -327,9 +338,37 @@ public class MainActivity extends AppCompatActivity {
             tts.stop();
             tts.shutdown();
         }
+        if (novelTranslator != null) {
+            novelTranslator.release();
+        }
         if (enToZhTranslator != null) {
             enToZhTranslator.close();
         }
+    }
+
+    private void notifyNovelCallback(final String callbackId, final String resultJson) {
+        if (callbackId == null || callbackId.isEmpty()) return;
+        final String safeId = callbackId.replace("\\", "\\\\").replace("'", "\\'");
+        final String payload = resultJson == null ? "null" : resultJson;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript(
+                        "try{var cb=window.novelTranslateCallbacks&&window.novelTranslateCallbacks.get('"
+                                + safeId + "');if(cb)cb(" + payload + ");}catch(e){}",
+                        null
+                );
+            }
+        });
+    }
+
+    private static String jsonEscape(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     public class DictionaryBridge {
@@ -454,6 +493,103 @@ public class MainActivity extends AppCompatActivity {
                             notifyTranslationResult(callbackId, "");
                         }
                     });
+        }
+
+        /** Reading-module only: true if Qwen or ML Kit fallback can translate. */
+        @JavascriptInterface
+        public boolean isNovelTranslatorReady() {
+            return novelTranslator != null && novelTranslator.isReady();
+        }
+
+        @JavascriptInterface
+        public boolean isNovelQwenReady() {
+            return novelTranslator != null && novelTranslator.isQwenReady();
+        }
+
+        @JavascriptInterface
+        public String getNovelEngineName() {
+            return novelTranslator == null ? "none" : novelTranslator.getEngineName();
+        }
+
+        @JavascriptInterface
+        public boolean isNovelModelFileReady(String name) {
+            if (novelTranslator == null) return false;
+            String n = (name == null || name.isEmpty()) ? NovelModelStore.DEFAULT_NAME : name;
+            return novelTranslator.getStore().isModelReady(n);
+        }
+
+        /**
+         * Download Qwen GGUF then load. Callback JSON:
+         * {ok, percent?, error?, engine?}
+         */
+        @JavascriptInterface
+        public void downloadNovelModel(final String url, final String name, final String callbackId) {
+            if (modelDownloading) {
+                notifyNovelCallback(callbackId, "{\"ok\":false,\"error\":\"downloading\"}");
+                return;
+            }
+            modelDownloading = true;
+            bg.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        String n = (name == null || name.isEmpty()) ? NovelModelStore.DEFAULT_NAME : name;
+                        if (url != null && url.trim().length() > 0) {
+                            novelTranslator.getStore().download(url.trim(), n, new NovelModelStore.ProgressListener() {
+                                @Override
+                                public void onProgress(int percent) {
+                                    notifyNovelCallback(callbackId,
+                                            "{\"ok\":true,\"phase\":\"download\",\"percent\":" + percent + "}");
+                                }
+                            });
+                        }
+                        novelTranslator.prepare(n);
+                        novelTranslator.loadDownloadedModel();
+                        String engine = novelTranslator.getEngineName();
+                        notifyNovelCallback(callbackId,
+                                "{\"ok\":true,\"phase\":\"ready\",\"percent\":100,\"engine\":\""
+                                        + jsonEscape(engine) + "\",\"qwen\":"
+                                        + (novelTranslator.isQwenReady() ? "true" : "false") + "}");
+                    } catch (Exception e) {
+                        Log.e(TAG, "downloadNovelModel failed", e);
+                        // Still try ML Kit path
+                        if (novelTranslator != null) {
+                            novelTranslator.prepare(name);
+                        }
+                        notifyNovelCallback(callbackId,
+                                "{\"ok\":false,\"error\":\"" + jsonEscape(e.getMessage()) + "\",\"engine\":\""
+                                        + jsonEscape(novelTranslator == null ? "none" : novelTranslator.getEngineName())
+                                        + "\"}");
+                    } finally {
+                        modelDownloading = false;
+                    }
+                }
+            });
+        }
+
+        /** Translate one novel paragraph (blocking on bg thread). */
+        @JavascriptInterface
+        public void translateNovel(final String text, final String callbackId) {
+            bg.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (novelTranslator == null) {
+                            notifyNovelCallback(callbackId, "{\"ok\":false,\"zh\":\"\",\"engine\":\"none\"}");
+                            return;
+                        }
+                        String zh = novelTranslator.translateParagraph(text);
+                        String engine = novelTranslator.getEngineName();
+                        notifyNovelCallback(callbackId,
+                                "{\"ok\":" + (zh != null && zh.length() > 0) + ",\"zh\":\""
+                                        + jsonEscape(zh) + "\",\"engine\":\"" + jsonEscape(engine) + "\"}");
+                    } catch (Exception e) {
+                        Log.e(TAG, "translateNovel failed", e);
+                        notifyNovelCallback(callbackId,
+                                "{\"ok\":false,\"zh\":\"\",\"error\":\"" + jsonEscape(e.getMessage()) + "\"}");
+                    }
+                }
+            });
         }
     }
 

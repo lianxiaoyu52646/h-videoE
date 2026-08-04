@@ -380,13 +380,55 @@ def list_missing_paragraphs(
     return list(session.exec(stmt).all())
 
 
+def _catalog_book_keys() -> list[str]:
+    """Curated classic shelf keys (gutenberg_100.json = 100)."""
+    from app.services import book_library
+
+    return [str(item["key"]).strip() for item in book_library._load_manifest() if item.get("key")]
+
+
+def _edition_rank(row: models.BookEdition) -> tuple:
+    """Prefer real content over stub; then more progress / newer id."""
+    sha = row.content_sha256 or ""
+    is_stub = 1 if sha.startswith("stub:") else 0
+    return (
+        is_stub,
+        -int(row.block_count or 0),
+        -int(row.translated_blocks or 0),
+        -int(row.id or 0),
+    )
+
+
+def _pick_preferred_edition(rows: list[models.BookEdition]) -> models.BookEdition:
+    return sorted(rows, key=_edition_rank)[0]
+
+
+def _catalog_editions_by_key(session: Session) -> dict[str, models.BookEdition]:
+    """One preferred edition per curated catalog key (ignores uploads / duplicates)."""
+    keys = _catalog_book_keys()
+    if not keys:
+        return {}
+    key_set = set(keys)
+    rows = session.exec(
+        select(models.BookEdition).where(models.BookEdition.book_key.in_(list(key_set)))
+    ).all()
+    grouped: dict[str, list[models.BookEdition]] = {}
+    for row in rows:
+        grouped.setdefault(row.book_key, []).append(row)
+    return {k: _pick_preferred_edition(v) for k, v in grouped.items()}
+
+
 def edition_translation_stats(session: Session) -> dict:
-    """Aggregate shared-book translation progress for UI scan."""
-    rows = session.exec(select(models.BookEdition)).all()
-    total = len(rows)
-    done = sum(1 for r in rows if (r.translate_status or "") == "done")
-    partial = sum(1 for r in rows if (r.translate_status or "") == "partial")
-    pending_only = sum(1 for r in rows if (r.translate_status or "pending") == "pending")
+    """Aggregate curated-shelf translation progress for UI scan (always ≤ catalog size)."""
+    keys = _catalog_book_keys()
+    total = len(keys)
+    by_key = _catalog_editions_by_key(session)
+    preferred = [by_key[k] for k in keys if k in by_key]
+    done = sum(1 for r in preferred if (r.translate_status or "") == "done")
+    partial = sum(1 for r in preferred if (r.translate_status or "") == "partial")
+    pending_only = sum(1 for r in preferred if (r.translate_status or "pending") == "pending")
+    # Keys not yet seeded count as pending.
+    pending_only += total - len(preferred)
     not_done = total - done
     return {
         "total_books": total,
@@ -404,20 +446,24 @@ def list_editions_needing_work(
     prefer_book_key: str | None = None,
     limit: int = 20,
 ) -> list[models.BookEdition]:
-    """Editions that are not fully translated (skip done). Stable order; prefer resume key first."""
-    stmt = select(models.BookEdition).where(
-        or_(
-            models.BookEdition.translate_status.is_(None),
-            models.BookEdition.translate_status != "done",
-        )
-    )
+    """Catalog editions that are not fully translated (skip done). One row per book_key."""
+    catalog_keys = _catalog_book_keys()
+    catalog_set = set(catalog_keys)
     if book_key:
-        stmt = stmt.where(models.BookEdition.book_key == book_key)
-    stmt = stmt.order_by(models.BookEdition.book_key.asc()).limit(max(1, min(limit, 100)))
-    rows = list(session.exec(stmt).all())
+        target = (book_key or "").strip()
+        if catalog_set and target not in catalog_set:
+            return []
+        keys_to_scan = [target]
+    else:
+        keys_to_scan = catalog_keys or []
+
+    by_key = _catalog_editions_by_key(session)
     out: list[models.BookEdition] = []
-    for row in rows:
-        if row.translate_status == "done":
+    for key in keys_to_scan:
+        row = by_key.get(key)
+        if not row:
+            continue
+        if (row.translate_status or "") == "done":
             continue
         total = int(row.block_count or 0)
         done = int(row.translated_blocks or 0)
@@ -425,6 +471,8 @@ def list_editions_needing_work(
             refresh_edition_progress(session, row.id)
             continue
         out.append(row)
+        if len(out) >= max(1, min(limit, 500)):
+            break
     session.commit()
     prefer = (prefer_book_key or "").strip()
     if prefer and len(out) > 1:

@@ -147,6 +147,55 @@ class AppVersionRead(BaseModel):
     android_apk_url: str = ""
     notes: str = ""
     force_apk: bool = False
+    # On-device novel translator (Qwen GGUF); empty = App uses bundled default name only.
+    android_novel_model_url: str = ""
+    android_novel_model_name: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+
+
+class BookTranslateClaimItem(BaseModel):
+    paragraph_id: int
+    edition_id: int
+    book_key: str = ""
+    title: str = ""
+    order_index: int
+    en_text: str
+
+
+class BookTranslateClaimResponse(BaseModel):
+    ok: bool = True
+    done: bool = False
+    edition_id: Optional[int] = None
+    book_key: str = ""
+    title: str = ""
+    block_count: int = 0
+    translated_blocks: int = 0
+    items: list[BookTranslateClaimItem] = []
+    message: str = ""
+
+
+class BookTranslateSubmitItem(BaseModel):
+    edition_id: int
+    order_index: int
+    en_text: str = ""
+    zh_text: str
+
+
+class BookTranslateSubmitRequest(BaseModel):
+    items: list[BookTranslateSubmitItem] = []
+    source: str = "qwen_local"
+
+
+class BookTranslateSubmitResponse(BaseModel):
+    ok: bool = True
+    saved: int = 0
+    skipped: int = 0
+    edition_id: Optional[int] = None
+    book_key: str = ""
+    title: str = ""
+    translate_status: str = ""
+    translated_blocks: int = 0
+    block_count: int = 0
+    scan: Optional[dict] = None
 
 
 class WordRead(BaseModel):

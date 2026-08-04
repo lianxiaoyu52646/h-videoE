@@ -195,6 +195,8 @@ def _load_app_version() -> schemas.AppVersionRead:
         "android_apk_url": "",
         "notes": "",
         "force_apk": False,
+        "android_novel_model_url": "",
+        "android_novel_model_name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
     }
     path = settings.static_dir / "m" / "app-version.json"
     if path.is_file():
@@ -210,6 +212,9 @@ def _load_app_version() -> schemas.AppVersionRead:
     env_web = (os.getenv("WEB_CONTENT_VERSION") or "").strip()
     if env_web:
         data["web_content_version"] = env_web
+    env_model = (os.getenv("ANDROID_NOVEL_MODEL_URL") or "").strip()
+    if env_model:
+        data["android_novel_model_url"] = env_model
     if (os.getenv("ANDROID_FORCE_UPDATE") or "").strip().lower() in {"1", "true", "yes"}:
         data["force_apk"] = True
     return schemas.AppVersionRead(**data)

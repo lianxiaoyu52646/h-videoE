@@ -23,8 +23,99 @@
       running: false,
       loading: false,
       pollTimer: null,
+      localRunning: false,
+      localAbort: false,
+      engine: '',
+      currentTitle: '',
+      modelPercent: null,
     },
   };
+
+  if (!window.novelTranslateCallbacks) window.novelTranslateCallbacks = new Map();
+  let _novelCbSeq = 0;
+
+  function novelBridgeCall(method, ...args) {
+    return new Promise((resolve, reject) => {
+      try {
+        const bridge = window.AndroidDictionary;
+        if (!bridge || typeof bridge[method] !== 'function') {
+          reject(new Error('需要 Android App'));
+          return;
+        }
+        const id = `n${Date.now()}_${++_novelCbSeq}`;
+        window.novelTranslateCallbacks.set(id, (payload) => {
+          // Keep callback for download progress until phase ready / error terminal
+          if (method === 'downloadNovelModel') {
+            resolve(payload);
+            if (payload && (payload.phase === 'ready' || payload.ok === false && payload.phase !== 'download')) {
+              window.novelTranslateCallbacks.delete(id);
+            }
+            return;
+          }
+          window.novelTranslateCallbacks.delete(id);
+          resolve(payload);
+        });
+        bridge[method](...args, id);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function translateNovelParagraph(enText) {
+    return novelBridgeCall('translateNovel', enText || '').then((r) => {
+      if (!r || !r.ok || !r.zh) throw new Error(r?.error || '翻译失败');
+      if (r.engine) state.bookTranslate.engine = r.engine;
+      return String(r.zh || '').trim();
+    });
+  }
+
+  async function ensureNovelModelReady() {
+    const bridge = window.AndroidDictionary;
+    if (!bridge) throw new Error('需要 Android App');
+    const ver = cachedAppVersion || (await fetchAppVersion().catch(() => null));
+    const modelUrl = (ver && ver.android_novel_model_url) || '';
+    const modelName = (ver && ver.android_novel_model_name) || 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
+    if (typeof bridge.isNovelModelFileReady === 'function' && bridge.isNovelModelFileReady(modelName)) {
+      if (typeof bridge.getNovelEngineName === 'function') {
+        state.bookTranslate.engine = bridge.getNovelEngineName() || '';
+      }
+      return { engine: state.bookTranslate.engine || 'ready' };
+    }
+    if (!modelUrl) {
+      // No remote GGUF yet — ML Kit fallback still allows claim/submit loop.
+      if (typeof bridge.isNovelTranslatorReady === 'function' && bridge.isNovelTranslatorReady()) {
+        state.bookTranslate.engine = bridge.getNovelEngineName?.() || 'mlkit_fallback';
+        return { engine: state.bookTranslate.engine };
+      }
+      throw new Error('翻译引擎未就绪');
+    }
+    toast('正在下载小说翻译模型…');
+    return new Promise((resolve, reject) => {
+      const id = `n${Date.now()}_${++_novelCbSeq}`;
+      window.novelTranslateCallbacks.set(id, (payload) => {
+        if (!payload) return;
+        if (payload.phase === 'download' && typeof payload.percent === 'number') {
+          state.bookTranslate.modelPercent = payload.percent;
+          if (state.tab === 'mine') renderMine();
+          return;
+        }
+        window.novelTranslateCallbacks.delete(id);
+        state.bookTranslate.modelPercent = null;
+        if (payload.ok) {
+          state.bookTranslate.engine = payload.engine || '';
+          resolve(payload);
+        } else if (typeof bridge.isNovelTranslatorReady === 'function' && bridge.isNovelTranslatorReady()) {
+          state.bookTranslate.engine = bridge.getNovelEngineName?.() || 'mlkit_fallback';
+          resolve({ ok: true, engine: state.bookTranslate.engine });
+        } else {
+          reject(new Error(payload.error || '模型下载失败'));
+        }
+        if (state.tab === 'mine') renderMine();
+      });
+      bridge.downloadNovelModel(modelUrl, modelName, id);
+    });
+  }
 
   function toast(msg) {
     const el = $('#toast');
@@ -2025,25 +2116,34 @@
     state.bookTranslate.progress = data.progress || null;
     state.bookTranslate.checkpoint = data.checkpoint || data.progress?.checkpoint || null;
     state.bookTranslate.resumable = !!data.resumable;
-    state.bookTranslate.running = !!data.running;
+    state.bookTranslate.running = !!data.running || !!state.bookTranslate.localRunning;
     if (data.running) startBookTranslatePoll();
-    else stopBookTranslatePoll();
+    else if (!state.bookTranslate.localRunning) stopBookTranslatePoll();
     if (state.tab === 'mine') renderMine();
     return data;
   }
 
   async function startBookTranslateJob() {
     const bt = state.bookTranslate;
-    if (bt.running || bt.loading) return;
+    if (bt.running || bt.loading || bt.localRunning) return;
     const pending = Number(bt.scan?.pending_books || 0);
-    if (!pending && !bt.resumable) {
-      toast('没有待译书籍');
+    if (!pending && !bt.resumable && !bt.localRunning) {
+      // Allow App local loop to claim even if scan stale
+      if (!nativeApkMeta().isApp) {
+        toast('没有待译书籍');
+        return;
+      }
+    }
+
+    // App：一人离线译 → 上传持久化 → 多人共享读
+    if (nativeApkMeta().isApp) {
+      await startLocalBookTranslateLoop();
       return;
     }
+
     bt.loading = true;
     renderMine();
     try {
-      // One book per slice + server auto-chain — avoids free-tier request kills.
       await api(
         '/api/jobs/book-translate/backfill?full_run=true&ensure_catalog=true&batch_size=15&max_books=1',
         { method: 'POST' },
@@ -2059,6 +2159,98 @@
     }
   }
 
+  async function startLocalBookTranslateLoop() {
+    const bt = state.bookTranslate;
+    if (bt.localRunning) return;
+    bt.localAbort = false;
+    bt.localRunning = true;
+    bt.loading = true;
+    bt.running = true;
+    renderMine();
+    try {
+      await ensureNovelModelReady();
+      toast(bt.engine === 'qwen_local' ? 'Qwen 离线翻译已启动' : '本地翻译已启动（兼容引擎）');
+      bt.loading = false;
+      if (state.tab === 'mine') renderMine();
+
+      while (!bt.localAbort) {
+        const claim = await api('/api/jobs/book-translate/claim?limit=4&ensure_catalog=true', {
+          method: 'POST',
+        });
+        if (claim.done || !claim.items || !claim.items.length) {
+          toast(claim.message || '全部翻译完成');
+          break;
+        }
+        bt.currentTitle = claim.title || claim.book_key || '';
+        bt.progress = {
+          message: `本地译：${bt.currentTitle} · ${claim.translated_blocks || 0}/${claim.block_count || '?'}`,
+          percent: claim.block_count
+            ? Math.round(((claim.translated_blocks || 0) / claim.block_count) * 100)
+            : 0,
+          current_title: bt.currentTitle,
+        };
+        if (state.tab === 'mine') renderMine();
+
+        const batch = [];
+        for (const item of claim.items) {
+          if (bt.localAbort) break;
+          try {
+            const zh = await translateNovelParagraph(item.en_text);
+            if (zh) {
+              batch.push({
+                edition_id: item.edition_id,
+                order_index: item.order_index,
+                en_text: item.en_text,
+                zh_text: zh,
+              });
+            }
+          } catch (e) {
+            console.warn('段落翻译失败', e);
+          }
+          // Slow background pace — keep UI responsive
+          await new Promise((r) => setTimeout(r, 280));
+        }
+        if (!batch.length) {
+          // Avoid tight spin if engine returns empty
+          await new Promise((r) => setTimeout(r, 800));
+          continue;
+        }
+        const source = (bt.engine === 'qwen_local') ? 'qwen_local' : (bt.engine || 'qwen_local');
+        const submitted = await api('/api/jobs/book-translate/submit', {
+          method: 'POST',
+          body: { items: batch, source },
+        });
+        if (submitted.scan) bt.scan = submitted.scan;
+        else await refreshBookTranslateStatus({ ensureCatalog: false });
+        if (submitted.block_count) {
+          bt.progress = {
+            message: `已写入 ${submitted.saved || 0} 段 · ${submitted.title || bt.currentTitle || ''} ${submitted.translated_blocks}/${submitted.block_count}`,
+            percent: Math.round((submitted.translated_blocks / submitted.block_count) * 100),
+            current_title: bt.currentTitle,
+            books_finished: submitted.scan?.done_books,
+            books_total: submitted.scan?.total_books,
+          };
+        }
+        if (state.tab === 'mine') renderMine();
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } catch (e) {
+      toast(e.message || '本地翻译失败');
+    } finally {
+      bt.localRunning = false;
+      bt.running = false;
+      bt.loading = false;
+      bt.modelPercent = null;
+      await refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
+      if (state.tab === 'mine') renderMine();
+    }
+  }
+
+  function stopLocalBookTranslate() {
+    state.bookTranslate.localAbort = true;
+    toast('正在停止…');
+  }
+
   function renderMine() {
     const u = state.user || {};
     const bt = state.bookTranslate;
@@ -2068,22 +2260,26 @@
     const pending = Number(scan.pending_books || 0);
     const doneBooks = Number(scan.done_books || 0);
     const totalBooks = Number(scan.total_books || 0);
-    const running = !!bt.running;
+    const isApp = nativeApkMeta().isApp;
+    const running = !!(bt.running || bt.localRunning);
     const resumable = !!bt.resumable && !running;
-    const percent = running
-      ? Math.max(0, Math.min(100, Number(prog.percent || cp.percent || 0)))
-      : (cp.books_total
-        ? Math.max(0, Math.min(100, Number(cp.percent || 0)))
+    const percent = (typeof bt.modelPercent === 'number')
+      ? bt.modelPercent
+      : (running
+        ? Math.max(0, Math.min(100, Number(prog.percent || cp.percent || (totalBooks ? (doneBooks / totalBooks) * 100 : 0))))
         : (totalBooks ? Math.round((doneBooks / totalBooks) * 100) : 0));
-    const statusLine = running
-      ? (prog.message || `翻译中 ${prog.books_finished || 0}/${prog.books_total || pending}`)
-      : (resumable
-        ? (cp.message || `可从断点继续（已完成 ${cp.books_finished || 0}/${cp.books_total || pending} 本）`)
-        : (pending ? `发现 ${pending} 本尚未译完` : (totalBooks ? '全部书籍已翻译完成' : '点击下方扫描经典书架')));
-    const current = (running || resumable) && (prog.current_title || cp.current_book_key)
-      ? `<div class="m-muted" style="margin-top:6px;">断点：${escapeHtml(prog.current_title || cp.current_book_key || '')}${cp.current_order_index ? ` · 段 ${cp.current_order_index}` : ''}</div>`
+    const engineHint = bt.engine
+      ? (bt.engine === 'qwen_local' ? 'Qwen 本地' : bt.engine === 'mlkit_fallback' ? '兼容引擎' : bt.engine)
+      : (isApp ? 'App 离线译' : '网页服务端');
+    const statusLine = (typeof bt.modelPercent === 'number')
+      ? `下载模型 ${bt.modelPercent}%`
+      : (running
+        ? (prog.message || `翻译中 · 已完成 ${doneBooks}/${totalBooks}`)
+        : (pending ? `待译 ${pending} 本 · 点继续由一人离线翻译，全员共享` : (totalBooks ? '全部书籍已翻译完成' : '点击下方扫描经典书架')));
+    const current = (running || resumable) && (prog.current_title || bt.currentTitle || cp.current_book_key)
+      ? `<div class="m-muted" style="margin-top:6px;">当前：${escapeHtml(prog.current_title || bt.currentTitle || cp.current_book_key || '')}</div>`
       : '';
-    const cta = running ? '翻译进行中…' : (bt.loading ? '启动中…' : (resumable ? '继续翻译' : '开始自动翻译'));
+    const cta = running ? (isApp ? '停止翻译' : '翻译进行中…') : (bt.loading ? '启动中…' : (resumable || pending ? '继续翻译' : '开始翻译'));
     const apk = nativeApkMeta();
     const ver = cachedAppVersion;
     const webLabel = localWebVersion() || ver?.web_content_version || '—';
@@ -2110,7 +2306,7 @@
       </div>
       <div class="m-card book-translate-card">
         <h2 style="margin:0 0 6px;">经典书库翻译</h2>
-        <p class="m-muted" style="margin:0;">人工触发 · 断点续传 · 已译跳过</p>
+        <p class="m-muted" style="margin:0;">一人离线译 · 结果共享 · ${escapeHtml(engineHint)}</p>
         <div class="bt-stats">
           <span>待译 <strong>${pending}</strong></span>
           <span>已完成 <strong>${doneBooks}</strong></span>
@@ -2121,7 +2317,7 @@
         ${current}
         <div class="bt-actions">
           <button class="m-btn m-btn-ghost" id="scanBooksBtn" type="button" ${running || bt.loading ? 'disabled' : ''}>扫描待译</button>
-          <button class="m-btn m-btn-primary" id="startTranslateBtn" type="button" ${running || bt.loading || (!pending && !resumable) ? 'disabled' : ''}>
+          <button class="m-btn m-btn-primary" id="startTranslateBtn" type="button" ${bt.loading || (!running && !pending && !resumable) ? 'disabled' : ''}>
             ${cta}
           </button>
         </div>
@@ -2144,7 +2340,13 @@
         toast(`待译 ${state.bookTranslate.scan?.pending_books || 0} 本`);
       } catch (e) { toast(e.message); }
     });
-    $('#startTranslateBtn')?.addEventListener('click', () => startBookTranslateJob());
+    $('#startTranslateBtn')?.addEventListener('click', () => {
+      if (state.bookTranslate.localRunning) {
+        stopLocalBookTranslate();
+        return;
+      }
+      startBookTranslateJob();
+    });
   }
 
   $('#userBtn').addEventListener('click', () => setTab('mine'));

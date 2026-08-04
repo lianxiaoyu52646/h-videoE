@@ -1,7 +1,9 @@
 {
-  "web_content_version": "20260729.4",
-  "android_version_code": 2,
-  "android_version_name": "1.0.1",
+  "web_content_version": "20260804.2",
+  "android_version_code": 3,
+  "android_version_name": "1.0.2",
   "android_apk_url": "",
-  "notes": "去掉生词卡片按压缩放导致的抖动"
+  "android_novel_model_url": "https://www.modelscope.cn/models/qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+  "android_novel_model_name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+  "notes": "阅读翻译：魔搭 Qwen2.5-1.5B GGUF；点击继续翻译时首次下载（约1GB）"
 }
