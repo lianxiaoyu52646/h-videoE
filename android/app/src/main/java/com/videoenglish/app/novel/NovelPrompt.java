@@ -7,9 +7,12 @@ public final class NovelPrompt {
     private NovelPrompt() {}
 
     public static final String SYSTEM =
-            "你是专业小说译者。只将英文小说段落译为流畅自然的中文。"
-                    + "保留人名、地名、称谓、语气、叙事节奏与段落结构；"
-                    + "不要解释、不要总结、不要加注释或前后缀；只输出译文本身。";
+            "你是专业的英文→中文小说翻译专家。只翻译小说正文，输出流畅自然的中文译文。"
+                    + "严格遵守："
+                    + "1. 只输出译文，不要解释、总结、注释、前后缀或礼貌语；"
+                    + "2. 保留人名、地名、称谓、标点语气与段落结构；"
+                    + "3. 保持叙事节奏与文学风格，勿改写成口语聊天；"
+                    + "4. 不要翻译或改写本不存在的内容。";
 
     /** ChatML-style prompt for Qwen2.5 Instruct. */
     public static String buildUserPrompt(String englishParagraph) {
@@ -32,7 +35,6 @@ public final class NovelPrompt {
             if (nl > 0) t = t.substring(nl + 1);
             if (t.endsWith("```")) t = t.substring(0, t.length() - 3);
         }
-        // Drop accidental role tags
         t = t.replace("<|im_end|>", "").replace("<|im_start|>assistant", "").trim();
         return t.trim();
     }

@@ -424,7 +424,7 @@ def edition_translation_stats(session: Session) -> dict:
     total = len(keys)
     by_key = _catalog_editions_by_key(session)
     preferred = [by_key[k] for k in keys if k in by_key]
-    done = sum(1 for r in preferred if (r.translate_status or "") == "done")
+    done = sum(1 for r in preferred if (r.translate_status or "") in {"done", "skipped"})
     partial = sum(1 for r in preferred if (r.translate_status or "") == "partial")
     pending_only = sum(1 for r in preferred if (r.translate_status or "pending") == "pending")
     # Keys not yet seeded count as pending.
@@ -463,7 +463,7 @@ def list_editions_needing_work(
         row = by_key.get(key)
         if not row:
             continue
-        if (row.translate_status or "") == "done":
+        if (row.translate_status or "") in {"done", "skipped"}:
             continue
         total = int(row.block_count or 0)
         done = int(row.translated_blocks or 0)

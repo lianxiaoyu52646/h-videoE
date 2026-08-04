@@ -100,17 +100,29 @@ public final class NovelTranslator {
     /** Translate one novel paragraph. Blocking — call off UI thread. */
     public String translateParagraph(String english) {
         String en = english == null ? "" : english.trim();
-        if (en.isEmpty()) return "";
+        if (en.isEmpty()) {
+            Log.w(TAG, "translateParagraph empty input");
+            return "";
+        }
+        Log.i(TAG, "translate start engine=" + engineName
+                + " qwenReady=" + isQwenReady()
+                + " enLen=" + en.length()
+                + " en=" + en.substring(0, Math.min(80, en.length())));
 
         if (isQwenReady()) {
             try {
                 String prompt = NovelPrompt.buildUserPrompt(en);
+                Log.i(TAG, "qwen promptLen=" + prompt.length());
                 String raw = LlamaNative.generate(nativeHandle, prompt, 512);
                 String zh = NovelPrompt.stripModelNoise(raw);
+                Log.i(TAG, "qwen rawLen=" + (raw == null ? 0 : raw.length())
+                        + " zhLen=" + zh.length()
+                        + " zh=" + zh.substring(0, Math.min(60, zh.length())));
                 if (zh.length() > 0) {
                     engineName = "qwen_local";
                     return zh;
                 }
+                Log.w(TAG, "qwen empty output, fallback");
             } catch (Throwable t) {
                 Log.e(TAG, "Qwen generate failed, fallback", t);
             }
@@ -120,11 +132,15 @@ public final class NovelTranslator {
             try {
                 String zh = Tasks.await(mlKitFallback.translate(en), 60, TimeUnit.SECONDS);
                 engineName = "mlkit_fallback";
-                return zh == null ? "" : zh.trim();
+                String out = zh == null ? "" : zh.trim();
+                Log.i(TAG, "mlkit zhLen=" + out.length()
+                        + " zh=" + out.substring(0, Math.min(60, out.length())));
+                return out;
             } catch (Exception e) {
                 Log.e(TAG, "ML Kit fallback failed", e);
             }
         }
+        Log.e(TAG, "translate failed: no engine output");
         return "";
     }
 

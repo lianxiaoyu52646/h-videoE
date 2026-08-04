@@ -17,9 +17,19 @@ def _claim_next_batch(
     limit: int,
     ensure_catalog: bool,
     book_key: str | None,
+    _depth: int = 0,
 ) -> schemas.BookTranslateClaimResponse:
     """Pick next catalog book needing work, materialize EN if needed, return missing paras."""
-    if ensure_catalog:
+    if _depth > 120:
+        stats = book_shared.edition_translation_stats(session)
+        return schemas.BookTranslateClaimResponse(
+            ok=True,
+            done=not bool(stats.get("pending_books")),
+            message="领取扫描过深，请稍后重试",
+            items=[],
+        )
+
+    if ensure_catalog and _depth == 0:
         if book_key:
             book_shared.ensure_edition_from_catalog(session, book_key)
         else:
@@ -49,14 +59,17 @@ def _claim_next_batch(
         session.refresh(edition)
 
     if book_shared._existing_paragraph_count(session, edition.id) == 0:
-        return schemas.BookTranslateClaimResponse(
-            ok=False,
-            done=False,
-            edition_id=edition.id,
-            book_key=edition.book_key,
-            title=edition.title or "",
-            message=f"无法加载原文：{edition.book_key}",
-            items=[],
+        # Skip unreadable book and keep claiming so the client loop does not stop.
+        edition.translate_status = "skipped"
+        edition.updated_at = book_shared._utc_now()
+        session.add(edition)
+        session.commit()
+        return _claim_next_batch(
+            session,
+            limit=limit,
+            ensure_catalog=False,
+            book_key=book_key,
+            _depth=_depth + 1,
         )
 
     missing = book_shared.list_missing_paragraphs(
@@ -66,24 +79,29 @@ def _claim_next_batch(
         book_shared.refresh_edition_progress(session, edition.id)
         session.commit()
         session.refresh(edition)
-        # Recurse once to advance to next book when current is effectively done.
-        if (edition.translate_status or "") == "done":
+        # No missing rows left → treat as done and advance (fixes block_count=0 stalls).
+        still = book_shared.list_missing_paragraphs(
+            session, edition_id=edition.id, limit=1
+        )
+        if not still:
+            if (edition.translate_status or "") != "done":
+                edition.translate_status = "done"
+                edition.updated_at = book_shared._utc_now()
+                session.add(edition)
+                session.commit()
             return _claim_next_batch(
                 session,
                 limit=limit,
                 ensure_catalog=False,
                 book_key=book_key,
+                _depth=_depth + 1,
             )
-        return schemas.BookTranslateClaimResponse(
-            ok=True,
-            done=False,
-            edition_id=edition.id,
-            book_key=edition.book_key,
-            title=edition.title or "",
-            block_count=int(edition.block_count or 0),
-            translated_blocks=int(edition.translated_blocks or 0),
-            message="当前书暂无待译段落",
-            items=[],
+        return _claim_next_batch(
+            session,
+            limit=limit,
+            ensure_catalog=False,
+            book_key=book_key,
+            _depth=_depth + 1,
         )
 
     items = [
