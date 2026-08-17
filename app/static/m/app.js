@@ -526,6 +526,23 @@
     try { if (ver) localStorage.setItem(WEB_VER_KEY, String(ver)); } catch (_) {}
   }
 
+
+  function paintMineVersion(remote) {
+    const el = document.getElementById('mineWebVer');
+    if (!el) return;
+    const apk = nativeApkMeta();
+    const apkLabel = apk.isApp || nativeBridge()
+      ? `${apk.name || 'App'} (${apk.code || 0})`
+      : '网页版';
+    const latest = String((remote && remote.web_content_version) || (cachedAppVersion && cachedAppVersion.web_content_version) || '').trim();
+    const local = localWebVersion() || latest || '—';
+    if (latest && latest !== local) {
+      el.innerHTML = `当前网页 ${escapeHtml(local)}<br/>最新版本 ${escapeHtml(latest)} · App ${escapeHtml(apkLabel)}`;
+    } else {
+      el.textContent = `当前网页 ${latest || local}（已是最新） · App ${apkLabel}`;
+    }
+  }
+
   function nativeApkMeta() {
     try {
       const bridge = nativeBridge();
@@ -595,6 +612,7 @@
     try {
       if (!silent) toast('正在检测…');
       const remote = await fetchAppVersion();
+      paintMineVersion(remote);
       const localWeb = localWebVersion();
       const webNewer = !!remote.web_content_version && remote.web_content_version !== localWeb;
       const apk = nativeApkMeta();
@@ -604,8 +622,7 @@
         !!String(remote.android_apk_url || '').trim();
 
       if (!webNewer && !apkNewer) {
-        if (!silent) toast('已是最新版本');
-        if (state.tab === 'mine') renderMine();
+        if (!silent) toast('已是最新版本 ' + (remote.web_content_version || ''));
         return { webNewer, apkNewer, remote };
       }
 
@@ -2934,7 +2951,7 @@
       <div class="m-card">
         <h2 style="margin:0 0 6px;">版本更新</h2>
         <p class="m-muted" style="margin:0 0 10px;">网页补丁自动下发；原生壳有新包时再安装。</p>
-        <p class="m-muted" style="margin:0 0 12px;font-size:0.82rem;">当前网页 ${escapeHtml(webLabel)} · App ${escapeHtml(apkLabel)}</p>
+        <p class="m-muted" id="mineWebVer" style="margin:0 0 12px;font-size:0.82rem;">当前网页 ${escapeHtml(webLabel)} · App ${escapeHtml(apkLabel)}</p>
         <button class="m-btn m-btn-primary m-btn-block" id="checkUpdateBtn" type="button">检测最新版本</button>
       </div>
       <div class="m-card book-translate-card">
@@ -2966,6 +2983,7 @@
       await api('/api/auth/logout', { method: 'POST' });
       location.href = '/login?next=/app';
     });
+    paintMineVersion(cachedAppVersion);
     $('#checkUpdateBtn')?.addEventListener('click', () => checkForUpdate());
     $('#scanBooksBtn')?.addEventListener('click', async () => {
       try {

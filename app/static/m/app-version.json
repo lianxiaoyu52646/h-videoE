@@ -1,9 +1,9 @@
 {
-  "web_content_version": "20260817.5",
+  "web_content_version": "20260817.6",
   "android_version_code": 4,
   "android_version_name": "1.0.3",
   "android_apk_url": "",
   "android_novel_model_url": "https://www.modelscope.cn/models/qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf",
   "android_novel_model_name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-  "notes": "vocab/study perf: optimistic review, lean feed, smaller DOM"
+  "notes": "检测最新版本会立刻显示服务器版本号"
 }
