@@ -693,8 +693,7 @@ body.eyecare .reader-zh { color: #3d5c45; }
   position: sticky;
   top: 58px;
   z-index: 12;
-  min-height: 64px;
-  transition: none;
+  transition: opacity 0.22s ease, transform 0.22s ease;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 10px;
@@ -722,7 +721,6 @@ body.eyecare .reader-zh { color: #3d5c45; }
   opacity: 0;
   transform: translateY(-12px);
   pointer-events: none;
-  transition: opacity 0.22s ease, transform 0.22s ease;
 }
 .skeleton-row {
   min-height: 88px;
@@ -761,7 +759,6 @@ body.eyecare .reader-zh { color: #3d5c45; }
   flex-direction: column;
   gap: 10px;
   contain: content;
-  min-height: 120px;
 }
 .study-row {
   display: grid;
@@ -1414,9 +1411,6 @@ body.eyecare .reader-zh { color: #3d5c45; }
 .view.active {
   display: block;
   animation: viewIn 0.28s ease both;
-}
-#view-books.view.active.is-study {
-  animation: none;
 }
 @keyframes viewIn {
   from { opacity: 0; transform: translateY(6px); }

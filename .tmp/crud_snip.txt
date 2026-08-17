@@ -1,0 +1,84 @@
+
+===== 32 def _apply_user_scope(statement, model, user_id: int | None): =====
+   32|def _apply_user_scope(statement, model, user_id: int | None):
+   33|    uid = _scoped_user_id(user_id)
+   34|    if uid is not None and hasattr(model, "user_id"):
+   35|        statement = statement.where(model.user_id == uid)
+   36|    return statement
+   37|
+   38|
+   39|def _apply_active_wordbook_filter(statement):
+   40|    return statement.where(models.WordBook.deleted_at.is_(None))
+   41|
+   42|
+   43|def _apply_active_reading_filter(statement):
+   44|    return statement.where(models.ReadingDocument.deleted_at.is_(None))
+   45|
+   46|
+   47|def _is_due(due: datetime, now: datetime | None = None) -> bool:
+   48|    now = now or _utc_now()
+   49|    if due.tzinfo is not None:
+   50|        due = due.astimezone(timezone.utc).replace(tzinfo=None)
+   51|    return due <= now
+   52|
+   53|
+   54|def _recompute_vocab_summary(session: Session, card: models.VocabItem) -> None:
+   55|    ctx = session.exec(
+   56|        select(models.VocabContext)
+   57|        .where(models.VocabContext.vocab_id == card.id)
+   58|        .order_by(models.VocabContext.created_at.desc())
+   59|    ).first()
+   60|    if ctx:
+   61|        card.source_platform = ctx.source_platform
+   62|        card.source_video_id = ctx.source_video_id
+   63|        card.source_url = ctx.source_url or None
+   64|        card.source_title = ctx.source_title
+   65|        card.sentence = ctx.sentence
+   66|        card.sentence_translation = ctx.sentence_translation
+   67|        card.timestamp = ctx.timestamp
+   68|    session.add(card)
+   69|
+   70|
+   71|def _ensure_vocab_context(
+
+===== 516 def get_vocab_card(session: Session, vocab_id: int, user_id: int | None = None): =====
+  516|def get_vocab_card(session: Session, vocab_id: int, user_id: int | None = None):
+  517|    stmt = select(models.VocabItem).where(models.VocabItem.id == vocab_id)
+  518|    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+  519|    return session.exec(stmt).first()
+  520|
+  521|
+  522|def get_due_vocab(
+  523|    session: Session,
+  524|    now: datetime,
+  525|    source_video_id: str | None = None,
+  526|    *,
+  527|    wordbook_id: int | None = None,
+  528|    user_id: int | None = None,
+  529|    limit: int | None = 24,
+  530|):
+  531|    """Return due cards for FSRS practice queue (default cap 24)."""
+  532|    cap = None if not limit else max(1, min(80, int(limit)))
+  533|    stmt = select(models.VocabItem).where(models.VocabItem.due <= now)
+  534|    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+  535|    if wordbook_id is not None:
+  536|        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+  537|    stmt = stmt.order_by(models.VocabItem.due.asc())
+  538|    if source_video_id:
+  539|        items = session.exec(stmt).all()
+  540|        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+  541|        return items[:cap] if cap else items
+  542|    if cap:
+  543|        stmt = stmt.limit(cap)
+  544|    return list(session.exec(stmt).all())
+  545|
+  546|
+  547|def get_all_vocab_for_practice(
+  548|    session: Session,
+  549|    limit: int = 20,
+  550|    source_video_id: str | None = None,
+  551|    *,
+  552|    wordbook_id: int | None = None,
+  553|    user_id: int | None = None,
+  554|):
+  555|    stmt = select(models.VocabItem)

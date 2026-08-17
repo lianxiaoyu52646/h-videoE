@@ -121,10 +121,6 @@ def _ensure_vocab_context(
 
 def vocab_to_read(session: Session, card: models.VocabItem) -> dict:
     data = card.model_dump()
-    data.pop("contexts", None)
-    data.pop("review_logs", None)
-    if data.get("definition") is None:
-        data["definition"] = ""
     data["contexts_count"] = session.exec(
         select(func.count(models.VocabContext.id)).where(models.VocabContext.vocab_id == card.id)
     ).one()
@@ -578,13 +574,6 @@ def review_vocab(
         return None
     due_before = card.due
     fsrs_scheduler.review_card(card, rating)
-    # SQLite DateTime rejects tz-aware values (py-fsrs returns UTC-aware).
-    if due_before is not None and getattr(due_before, "tzinfo", None) is not None:
-        due_before = due_before.astimezone(timezone.utc).replace(tzinfo=None)
-    if card.due is not None and getattr(card.due, "tzinfo", None) is not None:
-        card.due = card.due.astimezone(timezone.utc).replace(tzinfo=None)
-    if card.last_review is not None and getattr(card.last_review, "tzinfo", None) is not None:
-        card.last_review = card.last_review.astimezone(timezone.utc).replace(tzinfo=None)
     log = models.ReviewLog(
         user_id=card.user_id,
         vocab_id=card.id,

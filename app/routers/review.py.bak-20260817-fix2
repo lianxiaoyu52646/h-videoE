@@ -7,30 +7,18 @@ router = APIRouter(prefix='/api', tags=['review'])
 
 
 def _plain_vocab_read(card) -> dict:
-    """Light serializer for due-queue GET (skip N+1 context/review counts)."""
     data = card.model_dump()
-    data.pop('contexts', None)
-    data.pop('review_logs', None)
-    if data.get('definition') is None:
-        data['definition'] = ''
-    data['contexts_count'] = int(data.get('contexts_count') or 0)
-    data['review_count'] = int(data.get('review_count') or 0)
+    data['contexts_count'] = 0
+    data['review_count'] = 0
     return data
 
 
 @router.post('/review', response_model=schemas.VocabRead)
 def review_vocab(request: schemas.ReviewRequest, session: Session = Depends(database.session_dependency)):
-    """Apply FSRS rating. Mobile UI maps 会→4 (Good), 不会→1 (Again)."""
     card = crud.review_vocab(session, request.vocab_id, request.rating)
     if not card:
         raise HTTPException(status_code=404, detail='Vocabulary card not found')
-    # review_vocab() commits, which expires the ORM instance. Dumping the
-    # expired object as VocabRead 500s (mobile toast: generic 请求失败).
-    try:
-        session.refresh(card)
-    except Exception:
-        pass
-    return crud.vocab_to_read(session, card)
+    return _plain_vocab_read(card)
 
 
 @router.get('/recommendations', response_model=list[schemas.VocabRead])

@@ -1,0 +1,592 @@
+
+########## 1-80 ##########
+    1|(() => {
+    2|  const $ = (sel, el = document) => el.querySelector(sel);
+    3|  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+    4|
+    5|  const state = {
+    6|    tab: 'read',
+    7|    user: null,
+    8|    shell: null,
+    9|    readings: [],
+   10|    library: [],
+   11|    wordbooks: null,
+   12|    vocab: [],
+   13|    due: [],
+   14|    eyecare: localStorage.getItem('wp_eyecare') === '1',
+   15|    reader: null,
+   16|    study: null, // bidirectional study session
+   17|    pk: { room: null, ws: null, wordbookId: null, pollTimer: null, feedback: null },
+   18|    bookTranslate: {
+   19|      scan: null,
+   20|      progress: null,
+   21|      checkpoint: null,
+   22|      resumable: false,
+   23|      running: false,
+   24|      loading: false,
+   25|      pollTimer: null,
+   26|      localRunning: false,
+   27|      localAbort: false,
+   28|      engine: '',
+   29|      currentTitle: '',
+   30|      modelPercent: null,
+   31|      logs: [],
+   32|      emptyClaimStreak: 0,
+   33|      failStreak: 0,
+   34|      phase: 'idle',
+   35|    },
+   36|  };
+   37|
+   38|  if (!window.novelTranslateCallbacks) window.novelTranslateCallbacks = new Map();
+   39|  let _novelCbSeq = 0;
+   40|  const NOVEL_LOG_MAX = 400;
+   41|  if (!state.bookTranslate.logs) state.bookTranslate.logs = [];
+   42|
+   43|  function novelLog(level, event, detail) {
+   44|    const ts = new Date().toISOString().slice(11, 23);
+   45|    const d = detail == null ? '' : (typeof detail === 'string' ? detail : JSON.stringify(detail));
+   46|    const line = `[${ts}][${level}] ${event}${d ? ' ' + d : ''}`;
+   47|    const bt = state.bookTranslate;
+   48|    if (!bt.logs) bt.logs = [];
+   49|    bt.logs.push(line);
+   50|    if (bt.logs.length > NOVEL_LOG_MAX) bt.logs.splice(0, bt.logs.length - NOVEL_LOG_MAX);
+   51|    try {
+   52|      if (level === 'E') console.error('[NovelTranslate]', event, detail || '');
+   53|      else if (level === 'W') console.warn('[NovelTranslate]', event, detail || '');
+   54|      else console.log('[NovelTranslate]', event, detail || '');
+   55|    } catch (_) {}
+   56|    const box = document.getElementById('novelTranslateLog');
+   57|    if (box) {
+   58|      box.textContent = bt.logs.slice(-120).join('\n');
+   59|      box.scrollTop = box.scrollHeight;
+   60|    } else if (typeof updateBookTranslateUi === 'function') {
+   61|      try { updateBookTranslateUi(); } catch (_) {}
+   62|    }
+   63|    return line;
+   64|  }
+   65|
+   66|  function copyNovelLogs() {
+   67|    const text = (state.bookTranslate.logs || []).join('\n');
+   68|    if (!text) {
+   69|      toast('暂无日志');
+   70|      return;
+   71|    }
+   72|    const done = () => toast('翻译日志已复制');
+   73|    if (navigator.clipboard && navigator.clipboard.writeText) {
+   74|      navigator.clipboard.writeText(text).then(done).catch(() => {
+   75|        window.prompt('复制日志', text);
+   76|      });
+   77|    } else {
+   78|      window.prompt('复制日志', text);
+   79|    }
+   80|  }
+
+########## 500-540 ##########
+  500|
+  501|  window.__wpSpeakFallback = function (word) {
+  502|    speakWord(String(word || '').trim());
+  503|  };
+  504|
+  505|  function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {
+  506|    const w = String(word || '').trim();
+  507|    if (!w) return '';
+  508|    const cls = extraClass ? `speak-btn ${extraClass}` : 'speak-btn';
+  509|    const label = `朗读 ${escapeHtml(w)}`;
+  510|    const attrs = `class="${cls}" data-speak-word="${escapeHtml(w)}" aria-label="${label}" title="朗读"`;
+  511|    // Use <span> inside clickable rows — nested <button> breaks layout in browsers.
+  512|    if (as === 'span') {
+  513|      return `<span ${attrs} role="button" tabindex="0">🔊</span>`;
+  514|    }
+  515|    return `<button type="button" ${attrs}>🔊</button>`;
+  516|  }
+  517|
+  518|  const WEB_VER_KEY = 'wp_web_content_version';
+  519|  let cachedAppVersion = null;
+  520|
+  521|  function localWebVersion() {
+  522|    try { return localStorage.getItem(WEB_VER_KEY) || ''; } catch (_) { return ''; }
+  523|  }
+  524|
+  525|  function rememberWebVersion(ver) {
+  526|    try { if (ver) localStorage.setItem(WEB_VER_KEY, String(ver)); } catch (_) {}
+  527|  }
+  528|
+  529|
+  530|  function paintMineVersion(remote) {
+  531|    const el = document.getElementById('mineWebVer');
+  532|    if (!el) return;
+  533|    const apk = nativeApkMeta();
+  534|    const apkLabel = apk.isApp || nativeBridge()
+  535|      ? `${apk.name || 'App'} (${apk.code || 0})`
+  536|      : '网页版';
+  537|    const latest = String((remote && remote.web_content_version) || (cachedAppVersion && cachedAppVersion.web_content_version) || '').trim();
+  538|    const local = localWebVersion() || latest || '—';
+  539|    if (latest && latest !== local) {
+  540|      el.innerHTML = `当前网页 ${escapeHtml(local)}<br/>最新版本 ${escapeHtml(latest)} · App ${escapeHtml(apkLabel)}`;
+
+########## 660-730 ##########
+  660|    });
+  661|  }
+  662|
+  663|  function showModal(html) {
+  664|    const host = $('#modalHost');
+  665|    host.innerHTML = `<div class="m-modal-mask"><div class="m-modal">${html}</div></div>`;
+  666|    host.querySelector('.m-modal-mask').addEventListener('click', (e) => {
+  667|      if (e.target.classList.contains('m-modal-mask')) closeModal();
+  668|    });
+  669|  }
+  670|  function closeModal() { $('#modalHost').innerHTML = ''; }
+  671|
+  672|  function applyEyecare() {
+  673|    document.body.classList.toggle('eyecare', !!state.eyecare);
+  674|    localStorage.setItem('wp_eyecare', state.eyecare ? '1' : '0');
+  675|  }
+  676|
+  677|  function setTab(tab) {
+  678|    const prev = state.tab;
+  679|    // Leaving 词书 while studying: freeze at current word index (local + server).
+  680|    if (prev === 'books' && tab !== 'books' && state.study) {
+  681|      pauseStudySession();
+  682|    }
+  683|    state.tab = tab;
+  684|    $$('#tabNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  685|    $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${tab}`));
+  686|    if (tab === 'read') renderRead();
+  687|    if (tab === 'books') {
+  688|      // Coming back: reopen at the exact last word index.
+  689|      resumeStudySessionIfNeeded().catch(() => renderBooks());
+  690|    }
+  691|    if (tab === 'vocab') {
+  692|      renderVocab();
+  693|      refreshVocab().catch(() => {});
+  694|    }
+  695|    if (tab === 'pk') renderPk();
+  696|    if (tab === 'mine') {
+  697|      renderMine();
+  698|      refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
+  699|    } else {
+  700|      stopBookTranslatePoll();
+  701|    }
+  702|  }
+  703|
+  704|  function lastStudyBookKey() {
+  705|    return 'wp_last_study_book';
+  706|  }
+  707|
+  708|  function writeLastStudyBook(wordbookId) {
+  709|    try {
+  710|      if (wordbookId != null) localStorage.setItem(lastStudyBookKey(), String(wordbookId));
+  711|    } catch (_) {}
+  712|  }
+  713|
+  714|  function readLastStudyBook() {
+  715|    try {
+  716|      const n = Number(localStorage.getItem(lastStudyBookKey()));
+  717|      return Number.isFinite(n) && n > 0 ? n : null;
+  718|    } catch (_) {
+  719|      return null;
+  720|    }
+  721|  }
+  722|
+  723|  function pauseStudySession() {
+  724|    const s = state.study;
+  725|    if (!s) return;
+  726|    // Capture visible/pinned index immediately.
+  727|    let cursor = s.pinActiveOffset != null ? Number(s.pinActiveOffset) : visibleStudyCursor();
+  728|    if (!Number.isFinite(cursor)) cursor = Number(s.lastSavedCursor || 0);
+  729|    cursor = Math.max(0, Math.floor(cursor));
+  730|    s.lastSavedCursor = cursor;
+
+########## 1190-1320 ##########
+ 1190|
+ 1191|  function bookCoverMeta(index, name) {
+ 1192|    const palettes = [
+ 1193|      { cls: 'cover-coral', emoji: '📚' },
+ 1194|      { cls: 'cover-aqua', emoji: '🚀' },
+ 1195|      { cls: 'cover-sky', emoji: '🌈' },
+ 1196|      { cls: 'cover-lemon', emoji: '⚡' },
+ 1197|      { cls: 'cover-peach', emoji: '🫧' },
+ 1198|    ];
+ 1199|    const p = palettes[index % palettes.length];
+ 1200|    const short = (name || '词').trim().slice(0, 1) || '词';
+ 1201|    return { ...p, short };
+ 1202|  }
+ 1203|
+ 1204|  function renderBooks() {
+ 1205|    const root = $('#view-books');
+ 1206|    if (state.study) return renderStudy(root);
+ 1207|
+ 1208|    const books = state.wordbooks;
+ 1209|    const loading = books == null;
+ 1210|    const list = books || [];
+ 1211|    root.innerHTML = `
+ 1212|      <div class="m-hero wb-hero">
+ 1213|        <h1>词书闯关</h1>
+ 1214|        <p>点星=不会 · 不点=会</p>
+ 1215|      </div>
+ 1216|      <div class="wb-list">
+ 1217|        ${loading ? '<div class="m-card"><p class="m-muted">词书加载中…</p></div>'
+ 1218|          : (list.length ? list.map((b, i) => {
+ 1219|          const cover = bookCoverMeta(i, b.name);
+ 1220|          const pct = Math.min(100, Number(b.study_percent) || 0);
+ 1221|          const label = b.study_label || `0 / ${b.entry_count || 0}`;
+ 1222|          const started = (Number(b.study_seen) || 0) > 0;
+ 1223|          const done = pct >= 100;
+ 1224|          const cta = done ? '再刷一遍' : (started ? '继续刷' : '开始闯关');
+ 1225|          return `
+ 1226|            <button class="wb-card" data-study="${b.id}" type="button">
+ 1227|              <div class="wb-cover ${cover.cls}" aria-hidden="true">
+ 1228|                <span class="wb-cover-emoji">${cover.emoji}</span>
+ 1229|                <span class="wb-cover-letter">${escapeHtml(cover.short)}</span>
+ 1230|              </div>
+ 1231|              <div class="wb-body">
+ 1232|                <div class="wb-title">${escapeHtml(b.name)}</div>
+ 1233|                <div class="wb-progress-row">
+ 1234|                  <div class="progress-bar-wrap wb-progress">
+ 1235|                    <div class="progress-bar" style="width:${pct}%"></div>
+ 1236|                  </div>
+ 1237|                  <span class="wb-count">${escapeHtml(label)}</span>
+ 1238|                </div>
+ 1239|              </div>
+ 1240|              <span class="wb-cta">${cta}</span>
+ 1241|            </button>`;
+ 1242|        }).join('') : `<div class="m-card">
+ 1243|            <p class="m-muted">暂无词书</p>
+ 1244|            <button class="m-btn m-btn-primary" type="button" id="retryBooksBtn">重新加载词书</button>
+ 1245|          </div>`)}
+ 1246|      </div>`;
+ 1247|    $$('[data-study]').forEach((btn) => {
+ 1248|      btn.addEventListener('click', () => startStudy(Number(btn.dataset.study)));
+ 1249|    });
+ 1250|    $('#retryBooksBtn')?.addEventListener('click', async () => {
+ 1251|      try {
+ 1252|        toast('正在加载词书…');
+ 1253|        await loadBooks();
+ 1254|        renderBooks();
+ 1255|        if (!(state.wordbooks || []).length) toast('仍无词书，请重新登录后再试');
+ 1256|      } catch (e) {
+ 1257|        toast(e.message || '词书加载失败');
+ 1258|      }
+ 1259|    });
+ 1260|  }
+ 1261|
+ 1262|  function studyFeedBase(s) {
+ 1263|    return s.isVocabBook ? '/api/vocab/study-feed' : `/api/wordbooks/${s.wordbookId}/study-feed`;
+ 1264|  }
+ 1265|  function studyCursorPath(s) {
+ 1266|    return s.isVocabBook ? '/api/vocab/study-cursor' : `/api/wordbooks/${s.wordbookId}/study-cursor`;
+ 1267|  }
+ 1268|  function studyStarPath(s) {
+ 1269|    return s.isVocabBook ? '/api/vocab/study-star' : `/api/wordbooks/${s.wordbookId}/study-star`;
+ 1270|  }
+ 1271|
+ 1272|  async function exitStudy() {
+ 1273|    const s = state.study;
+ 1274|    const wasVocab = !!s?.isVocabBook;
+ 1275|    if (s) {
+ 1276|      await saveStudyCursor(true);
+ 1277|      if (!wasVocab) patchBookProgressFromStudy();
+ 1278|      if (!wasVocab) writeLastStudyBook(s.wordbookId);
+ 1279|      if (s.wordbookId != null && s.lastSavedCursor != null) {
+ 1280|        writeLocalStudyCursor(s.wordbookId, s.lastSavedCursor);
+ 1281|      }
+ 1282|    }
+ 1283|    teardownStudyObservers();
+ 1284|    state.study = null;
+ 1285|    if (wasVocab) {
+ 1286|      setTab('vocab');
+ 1287|      return;
+ 1288|    }
+ 1289|    renderBooks();
+ 1290|    loadBooks().catch(() => {});
+ 1291|  }
+ 1292|
+ 1293|  function renderStudySkeleton() {
+ 1294|    const root = $('#view-books');
+ 1295|    if (!root || !state.study) return;
+ 1296|    const s = state.study;
+ 1297|    root.innerHTML = `
+ 1298|      <div class="study-top">
+ 1299|        <button class="study-back" id="exitStudy" type="button" aria-label="back">` + "\u2190" + `</button>
+ 1300|        <div class="study-top-main">
+ 1301|          <div class="study-top-title">${escapeHtml(s.name || 'book')}</div>
+ 1302|          <div class="study-top-meta">...</div>
+ 1303|          <div class="progress-bar-wrap"><div class="progress-bar" style="width:0%"></div></div>
+ 1304|        </div>
+ 1305|      </div>
+ 1306|      <div id="studyList" class="study-list">
+ 1307|        ${Array.from({ length: 6 }).map(() => '<article class="study-row skeleton-row"></article>').join('')}
+ 1308|      </div>`;
+ 1309|    $('#exitStudy').onclick = () => { exitStudy(); };
+ 1310|  }
+ 1311|
+ 1312|  function openVocabBook() {
+ 1313|    state.tab = 'books';
+ 1314|    $$('#tabNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'books'));
+ 1315|    $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-books'));
+ 1316|    startStudy('vocab', { vocabBook: true }).catch((e) => toast(e.message || 'fail'));
+ 1317|  }
+ 1318|
+ 1319|  async function startStudy(wordbookId, { vocabBook = false } = {}) {
+ 1320|    teardownStudyObservers();
+
+########## 1358-1420 ##########
+ 1358|  function studyCursorKey(wordbookId) {
+ 1359|    return `wp_study_cursor_${wordbookId}`;
+ 1360|  }
+ 1361|
+ 1362|  function readLocalStudyCursor(wordbookId) {
+ 1363|    try {
+ 1364|      const raw = localStorage.getItem(studyCursorKey(wordbookId));
+ 1365|      if (raw == null || raw === '') return null;
+ 1366|      const n = Number(raw);
+ 1367|      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+ 1368|    } catch (_) {
+ 1369|      return null;
+ 1370|    }
+ 1371|  }
+ 1372|
+ 1373|  function writeLocalStudyCursor(wordbookId, cursor) {
+ 1374|    try {
+ 1375|      localStorage.setItem(studyCursorKey(wordbookId), String(Math.max(0, Math.floor(Number(cursor) || 0))));
+ 1376|    } catch (_) {}
+ 1377|  }
+ 1378|
+ 1379|  function patchBookProgressFromStudy() {
+ 1380|    const s = state.study;
+ 1381|    if (!s || !Array.isArray(state.wordbooks)) return;
+ 1382|    const book = state.wordbooks.find((b) => Number(b.id) === Number(s.wordbookId));
+ 1383|    if (!book) return;
+ 1384|    const total = s.total || book.entry_count || 0;
+ 1385|    const cursor = s.lastSavedCursor != null ? s.lastSavedCursor : (s.progress?.cursor || 0);
+ 1386|    const at = Math.min(total, Math.max(0, cursor) + 1);
+ 1387|    book.study_seen = Math.max(Number(book.study_seen) || 0, at);
+ 1388|    book.study_label = total ? `${at} / ${total}` : book.study_label;
+ 1389|    book.study_percent = total ? Math.min(100, Math.round((at / total) * 100)) : book.study_percent;
+ 1390|    book.study_cursor = cursor;
+ 1391|  }
+ 1392|
+ 1393|  function teardownStudyObservers() {
+ 1394|    const s = state.study;
+ 1395|    if (!s) return;
+ 1396|    (s.observers || []).forEach((io) => io.disconnect());
+ 1397|    s.observers = [];
+ 1398|    if (s.onScroll) {
+ 1399|      window.removeEventListener('scroll', s.onScroll);
+ 1400|      s.onScroll = null;
+ 1401|    }
+ 1402|    if (s.cursorTimer) {
+ 1403|      clearTimeout(s.cursorTimer);
+ 1404|      s.cursorTimer = null;
+ 1405|    }
+ 1406|  }
+ 1407|
+ 1408|  function syncStudyBounds() {
+ 1409|    const s = state.study;
+ 1410|    if (!s) return;
+ 1411|    const total = Number(s.total || 0);
+ 1412|    s.hasMoreBefore = s.startOffset > 0;
+ 1413|    s.hasMoreAfter = total > 0 ? s.nextOffset < total : false;
+ 1414|  }
+ 1415|
+ 1416|  function studyRowHtml(it, { animate = false } = {}) {
+ 1417|    const s = state.study;
+ 1418|    const idx = it.index != null ? it.index : (Number(it.offset) + 1);
+ 1419|    return `
+ 1420|      <div class="study-row${animate ? ' is-new' : ''}" data-id="${it.id}" data-offset="${it.offset ?? ''}">
+
+########## 1480-1570 ##########
+ 1480|        s.pinScrollY = window.scrollY;
+ 1481|        setActiveStudyRow(off);
+ 1482|        s.lastSavedCursor = off;
+ 1483|        updateStudyProgressUi();
+ 1484|        scheduleSaveStudyCursor();
+ 1485|      });
+ 1486|    });
+ 1487|  }
+ 1488|
+ 1489|  function bindStudyStarButtons(scope) {
+ 1490|    const s = state.study;
+ 1491|    if (!s) return;
+ 1492|    bindStudyRowSelection(scope);
+ 1493|    $$('[data-star]', scope || document).forEach((btn) => {
+ 1494|      if (btn.dataset.bound === '1') return;
+ 1495|      btn.dataset.bound = '1';
+ 1496|      btn.addEventListener('click', async () => {
+ 1497|        const id = Number(btn.dataset.star);
+ 1498|        const on = !s.starred.has(id);
+ 1499|        if (on) s.starred.add(id);
+ 1500|        else s.starred.delete(id);
+ 1501|        btn.classList.toggle('on', on);
+ 1502|        btn.textContent = on ? '★' : '☆';
+ 1503|        btn.classList.add('pop');
+ 1504|        setTimeout(() => btn.classList.remove('pop'), 280);
+ 1505|        try {
+ 1506|          const res = await api(studyStarPath(s), {
+ 1507|            method: 'POST',
+ 1508|            body: s.isVocabBook ? { vocab_id: id, starred: on } : { entry_id: id, starred: on },
+ 1509|          });
+ 1510|          if (res.progress) {
+ 1511|            s.progress = res.progress;
+ 1512|            updateStudyProgressUi();
+ 1513|          }
+ 1514|          toast(s.isVocabBook ? (on ? '仍在生词本' : '已移出') : (on ? '已进生词本' : '已取消'));
+ 1515|          if (!s.isVocabBook) refreshVocab().catch(() => {});
+ 1516|        } catch (e) { toast(e.message); }
+ 1517|      });
+ 1518|    });
+ 1519|  }
+ 1520|
+ 1521|  function updateStudyProgressUi() {
+ 1522|    const s = state.study;
+ 1523|    if (!s?.progress) return;
+ 1524|    const meta = $('.study-top-meta');
+ 1525|    const bar = $('.study-top .progress-bar');
+ 1526|    const pct = Math.min(100, Number(s.progress.percent) || 0);
+ 1527|    const total = s.total || s.progress.total || 0;
+ 1528|    const cursor = s.lastSavedCursor != null ? s.lastSavedCursor : (s.progress.cursor || 0);
+ 1529|    const label = total ? `${cursor + 1} / ${total}` : (s.progress.label || '0 / 0');
+ 1530|    if (meta) meta.textContent = `${label} · ${pct}%`;
+ 1531|    if (bar) bar.style.width = `${pct}%`;
+ 1532|  }
+ 1533|
+ 1534|  function updateStudySentinels() {
+ 1535|    const s = state.study;
+ 1536|    if (!s) return;
+ 1537|    syncStudyBounds();
+ 1538|    const top = $('#studySentinelTop');
+ 1539|    const bottom = $('#studySentinelBottom');
+ 1540|    if (top) {
+ 1541|      top.textContent = s.loadingBefore
+ 1542|        ? '加载前面的单词…'
+ 1543|        : (s.hasMoreBefore
+ 1544|          ? (s.allowLoadBefore ? '↑ 继续上滑 · 回到更早的词' : '↑ 上滑可查看更早的词')
+ 1545|          : '▲ 词书开头（第 1 个词）');
+ 1546|    }
+ 1547|    if (bottom) {
+ 1548|      const total = s.total || 0;
+ 1549|      bottom.textContent = s.loadingAfter
+ 1550|        ? '加载后面的单词…'
+ 1551|        : (s.hasMoreAfter
+ 1552|          ? '↓ 继续下滑 · 查看更多'
+ 1553|          : (total ? `▼ 词书末尾（第 ${total} 个词）` : '▼ 词书末尾'));
+ 1554|    }
+ 1555|  }
+ 1556|
+ 1557|  function appendStudyRows(items) {
+ 1558|    const list = $('#studyList');
+ 1559|    if (!list || !items.length) return;
+ 1560|    list.insertAdjacentHTML('beforeend', items.map((it) => studyRowHtml(it, { animate: false })).join(''));
+ 1561|    bindStudyStarButtons(list);
+ 1562|    if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
+ 1563|  }
+ 1564|
+ 1565|  function prependStudyRows(items) {
+ 1566|    const list = $('#studyList');
+ 1567|    if (!list || !items.length) return;
+ 1568|    const height = document.documentElement.scrollHeight;
+ 1569|    const y = window.scrollY;
+ 1570|    list.insertAdjacentHTML('afterbegin', items.map((it) => studyRowHtml(it, { animate: false })).join(''));
+
+########## 1670-1770 ##########
+ 1670|        s.startOffset = Math.min(s.startOffset, pageOffset);
+ 1671|      }
+ 1672|      syncStudyBounds();
+ 1673|      return fresh;
+ 1674|    }
+ 1675|    return [];
+ 1676|  }
+ 1677|
+ 1678|  async function loadStudyPage(mode) {
+ 1679|    const s = state.study;
+ 1680|    if (!s) return;
+ 1681|    if (mode === 'before') {
+ 1682|      if (!s.allowLoadBefore || s.loadingBefore || !s.hasMoreBefore) return;
+ 1683|      s.loadingBefore = true;
+ 1684|    } else if (mode === 'after') {
+ 1685|      if (s.loadingAfter || !s.hasMoreAfter) return;
+ 1686|      s.loadingAfter = true;
+ 1687|    } else if (s.loadingAfter || s.loadingBefore) {
+ 1688|      return;
+ 1689|    } else {
+ 1690|      s.loadingAfter = true;
+ 1691|    }
+ 1692|
+ 1693|    const seq = (s.feedSeq = (s.feedSeq || 0) + 1);
+ 1694|    const pageSize = STUDY_PAGE_SIZE;
+ 1695|    updateStudySentinels();
+ 1696|
+ 1697|    try {
+ 1698|      let url = `${studyFeedBase(s)}?limit=${pageSize}`;
+ 1699|      if (mode === 'after') {
+ 1700|        // Use prefetched page if available.
+ 1701|        if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(s.nextOffset)) {
+ 1702|          const data = s.prefetchAfter;
+ 1703|          s.prefetchAfter = null;
+ 1704|          if (state.study !== s || seq !== s.feedSeq) return;
+ 1705|          const fresh = applyStudyPage(data, 'after');
+ 1706|          appendStudyRows(fresh);
+ 1707|          trimStudyDom('after');
+ 1708|          updateStudyProgressUi();
+ 1709|          updateStudySentinels();
+ 1710|          schedulePrefetchAfter();
+ 1711|          return;
+ 1712|        }
+ 1713|        url += `&offset=${s.nextOffset}`;
+ 1714|      } else if (mode === 'before') {
+ 1715|        const limit = Math.min(pageSize, s.startOffset);
+ 1716|        const offset = Math.max(0, s.startOffset - limit);
+ 1717|        url = `${studyFeedBase(s)}?limit=${limit}&offset=${offset}`;
+ 1718|      } else if (mode === 'resume') {
+ 1719|        const local = s.localResumeOffset;
+ 1720|        if (local != null && Number.isFinite(local) && local >= 0) {
+ 1721|          url += `&offset=${Math.floor(local)}`;
+ 1722|        }
+ 1723|      }
+ 1724|      let data = await api(url);
+ 1725|      if (state.study !== s || seq !== s.feedSeq) return;
+ 1726|
+ 1727|      let resumeKeep = null;
+ 1728|      if (mode === 'resume') {
+ 1729|        const pageStart = Number(data.offset ?? 0);
+ 1730|        const local = s.localResumeOffset != null ? Math.floor(s.localResumeOffset) : pageStart;
+ 1731|        const serverResume = Number(data.resume_offset ?? data.progress?.cursor ?? pageStart);
+ 1732|        let target = Math.max(serverResume, local);
+ 1733|        const totalHint = Number(data.total || 0);
+ 1734|        if (totalHint) target = Math.max(0, Math.min(target, totalHint - 1));
+ 1735|        const pageEnd = pageStart + (data.items || []).length;
+ 1736|        // First paint with this page — do not block on a second GET.
+ 1737|        if (!(data.items || []).length || target < pageStart || target >= pageEnd) {
+ 1738|          target = pageStart;
+ 1739|        }
+ 1740|        resumeKeep = target;
+ 1741|        writeLocalStudyCursor(s.wordbookId, target);
+ 1742|      }
+ 1743|
+ 1744|      const fresh = applyStudyPage(data, mode === 'resume' ? 'resume' : mode);
+ 1745|
+ 1746|      if (mode === 'resume' || !s.bootstrapped) {
+ 1747|        if (mode === 'resume' && resumeKeep != null) {
+ 1748|          s.resumeTarget = s.total
+ 1749|            ? Math.max(0, Math.min(resumeKeep, s.total - 1))
+ 1750|            : resumeKeep;
+ 1751|          s.lastSavedCursor = s.resumeTarget;
+ 1752|        }
+ 1753|        s.bootstrapped = true;
+ 1754|        s.allowLoadBefore = false;
+ 1755|        renderBooks();
+ 1756|        schedulePrefetchAfter();
+ 1757|        return;
+ 1758|      }
+ 1759|
+ 1760|      if (mode === 'after') {
+ 1761|        appendStudyRows(fresh);
+ 1762|        trimStudyDom('after');
+ 1763|        schedulePrefetchAfter();
+ 1764|      } else if (mode === 'before') {
+ 1765|        prependStudyRows(fresh);
+ 1766|        trimStudyDom('before');
+ 1767|      }
+ 1768|      updateStudyProgressUi();
+ 1769|      updateStudySentinels();
+ 1770|    } catch (e) {
