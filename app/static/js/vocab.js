@@ -113,10 +113,9 @@ videoFilter.addEventListener('change', async () => {
 async function loadVocab() {
   try {
     const items = await api(`/api/vocab${getFilterParam()}`);
-    renderVocab(items);
     renderStats(items);
   } catch (e) {
-    vocabGrid.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
+    if (vocabStats) vocabStats.textContent = "加载失败";
   }
 }
 
@@ -182,21 +181,34 @@ async function loadRecommendations() {
 function speakWord(word) {
   const w = String(word || '').trim();
   if (!w) return;
+  try { window.speechSynthesis && window.speechSynthesis.getVoices(); } catch (_) {}
   try {
-    if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
-      window.AndroidDictionary.speak(w);
-      return;
+    const bridge = window.AndroidDictionary;
+    if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
+  } catch (_) {}
+  try {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(w);
+      u.lang = 'en-US';
+      u.rate = 1.08;
+      const voices = window.speechSynthesis.getVoices() || [];
+      const voice = voices.find((v) => /en-US/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang));
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
     }
-  } catch (_) { /* fall through */ }
-  if ('speechSynthesis' in window) {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(w);
-    u.lang = 'en-US';
-    u.rate = 0.85;
-    speechSynthesis.speak(u);
-  }
+  } catch (_) {}
+  try {
+    if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
+    const audio = window._wpSpeakAudio;
+    audio.onerror = null;
+    audio.onplaying = () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {} };
+    try { audio.pause(); } catch (_) {}
+    audio.src = '/api/tts?q=' + encodeURIComponent(w);
+    const play = audio.play();
+    if (play && play.catch) play.catch((err) => { if (err && err.name === 'AbortError') return; });
+  } catch (_) {}
 }
-
 function renderReview() {
   if (reviewIdx >= reviewQueue.length) {
     reviewArea.innerHTML = `
@@ -257,7 +269,6 @@ function renderReview() {
       reviewIdx++;
       showAnswer = false;
       renderReview();
-      await loadVocab();
     });
   });
 }

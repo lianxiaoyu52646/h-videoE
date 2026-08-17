@@ -440,32 +440,6 @@ def list_vocab(
     return items
 
 
-def count_vocab(session: Session, user_id: int | None = None) -> int:
-    stmt = select(func.count(models.VocabItem.id))
-    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
-    return int(session.exec(stmt).one() or 0)
-
-
-def list_vocab_page(
-    session: Session,
-    *,
-    offset: int = 0,
-    limit: int = 24,
-    user_id: int | None = None,
-):
-    """Stable id-order page for vocab-book study feed."""
-    limit = max(1, min(100, int(limit or 24)))
-    offset = max(0, int(offset or 0))
-    stmt = (
-        select(models.VocabItem)
-        .order_by(models.VocabItem.id.asc())
-        .offset(offset)
-        .limit(limit)
-    )
-    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
-    return list(session.exec(stmt).all())
-
-
 def list_video_summaries(session: Session, user_id: int | None = None):
     uid = _scoped_user_id(user_id)
     cards = list_vocab(session, user_id=uid)

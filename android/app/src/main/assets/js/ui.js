@@ -30,27 +30,36 @@ function showToast(message, type = 'info') {
 }
 
 function speakWord(word) {
-  if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
-    try {
-      window.AndroidDictionary.speak(word);
-      return;
-    } catch (e) {
-      console.log('Android TTS failed, falling back to Web Speech API');
+  const w = String(word || '').trim();
+  if (!w) return;
+  try { window.speechSynthesis && window.speechSynthesis.getVoices(); } catch (_) {}
+  try {
+    const bridge = window.AndroidDictionary;
+    if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
+  } catch (_) {}
+  try {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(w);
+      u.lang = 'en-US';
+      u.rate = 1.08;
+      const voices = window.speechSynthesis.getVoices() || [];
+      const voice = voices.find((v) => /en-US/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang));
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
     }
-  }
-  
-  if (!('speechSynthesis' in window)) {
-    showToast('您的设备不支持语音合成', 'error');
-    return;
-  }
-  
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(word);
-  utterance.lang = 'en-US';
-  utterance.rate = 0.9;
-  window.speechSynthesis.speak(utterance);
+  } catch (_) {}
+  try {
+    if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
+    const audio = window._wpSpeakAudio;
+    audio.onerror = null;
+    audio.onplaying = () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {} };
+    try { audio.pause(); } catch (_) {}
+    audio.src = '/api/tts?q=' + encodeURIComponent(w);
+    const play = audio.play();
+    if (play && play.catch) play.catch((err) => { if (err && err.name === 'AbortError') return; });
+  } catch (_) {}
 }
-
 function renderWordPopover(data) {
   const body = document.getElementById('wordPopoverBody');
   if (!body) return;
@@ -1707,8 +1716,6 @@ function renderVocabPage() {
         </div>
       </div>
       
-      <div id="vocabGrid" class="vocab-grid"></div>
-      
       <div class="card">
         <h3>📚 复习推荐</h3>
         <div id="reviewArea" class="review-area"></div>
@@ -1737,17 +1744,15 @@ function dueStatus(card) {
 }
 
 async function loadVocab() {
-  const grid = document.getElementById('vocabGrid');
   const stats = document.getElementById('vocabStats');
-  if (!grid || !stats) return;
+  if (!stats) return;
   
   try {
     const items = await getVocab();
-    renderVocabList(items);
     renderVocabStats(items);
     renderReview(items);
   } catch (e) {
-    grid.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(e.message)}</p></div>`;
+    stats.textContent = '加载失败';
   }
 }
 

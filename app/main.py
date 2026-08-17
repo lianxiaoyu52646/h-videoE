@@ -258,7 +258,7 @@ def proxy_english_tts(q: str = ""):
                     "Referer": "https://www.youdao.com/",
                 },
             )
-            with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+            with urllib.request.urlopen(req, timeout=2.5, context=ctx) as resp:
                 data = resp.read()
                 ctype = resp.headers.get("Content-Type") or "audio/mpeg"
             if not data or len(data) < 64:

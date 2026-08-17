@@ -1,4 +1,96 @@
-import json
+# -*- coding: utf-8 -*-
+from pathlib import Path
+import shutil
+from datetime import datetime
+
+ROOT = Path(r"D:\lian\praPro\h-videoE")
+stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+def backup(p: Path):
+    bak = p.with_suffix(p.suffix + f".bak-{stamp}")
+    shutil.copy2(p, bak)
+    print("backup", bak)
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"MISSING BLOCK: {label}\n---\n{old[:200]}")
+    return text.replace(old, new, 1)
+
+crud_path = ROOT / "app" / "crud.py"
+backup(crud_path)
+crud = crud_path.read_text(encoding="utf-8")
+old = """def list_vocab(
+    session: Session,
+    source_video_id: str | None = None,
+    *,
+    wordbook_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.VocabItem).order_by(models.VocabItem.added_at.desc())
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    if wordbook_id is not None:
+        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+    items = session.exec(stmt).all()
+    if source_video_id:
+        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+    return items
+"""
+new = """def list_vocab(
+    session: Session,
+    source_video_id: str | None = None,
+    *,
+    wordbook_id: int | None = None,
+    user_id: int | None = None,
+):
+    stmt = select(models.VocabItem).order_by(models.VocabItem.added_at.desc())
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    if wordbook_id is not None:
+        stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
+    items = session.exec(stmt).all()
+    if source_video_id:
+        items = [item for item in items if _card_matches_source(session, item, source_video_id)]
+    return items
+
+
+def count_vocab(session: Session, user_id: int | None = None) -> int:
+    stmt = select(func.count(models.VocabItem.id))
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    return int(session.exec(stmt).one() or 0)
+
+
+def list_vocab_page(
+    session: Session,
+    *,
+    offset: int = 0,
+    limit: int = 24,
+    user_id: int | None = None,
+):
+    \"\"\"Stable id-order page for vocab-book study feed.\"\"\"
+    limit = max(1, min(100, int(limit or 24)))
+    offset = max(0, int(offset or 0))
+    stmt = (
+        select(models.VocabItem)
+        .order_by(models.VocabItem.id.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
+    return list(session.exec(stmt).all())
+"""
+crud = replace_once(crud, old, new, "list_vocab")
+crud_path.write_text(crud, encoding="utf-8")
+print("patched crud.py")
+
+vocab_path = ROOT / "app" / "routers" / "vocabulary.py"
+backup(vocab_path)
+vocab = vocab_path.read_text(encoding="utf-8")
+old = """from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlmodel import Session, select
+from app import crud, models, schemas
+from app import database
+from app.services import dictionary, translator
+"""
+new = """import json
 from datetime import datetime
 from pathlib import Path as _Path
 
@@ -8,68 +100,19 @@ from sqlmodel import Session, select
 from app import crud, models, schemas, security
 from app import database
 from app.services import dictionary, translator
+"""
+vocab = replace_once(vocab, old, new, "vocabulary imports")
 
-router = APIRouter(tags=["vocabulary"])
-
-
-@router.get("/api/word-lookup/{word}", response_model=schemas.WordRead)
-def lookup_word_for_reader(word: str, session: Session = Depends(database.session_dependency)):
-    """Click-to-translate: local ECDICT first, then Youdao if missing."""
-    return dictionary.lookup_word_click(word, session=session)
-
-
-@router.get("/api/word/{word}", response_model=schemas.WordRead)
-def lookup_word(word: str, session: Session = Depends(database.session_dependency)):
-    return dictionary.lookup_word_fast(word, session=session)
-
-
-@router.get("/api/word-fast/{word}", response_model=schemas.WordRead)
-def lookup_word_fast(word: str, session: Session = Depends(database.session_dependency)):
-    return dictionary.lookup_word_fast(word, session=session)
-
-
-@router.get("/api/word-enrich/{word}", response_model=schemas.WordRead)
-def lookup_word_enrich(word: str, session: Session = Depends(database.session_dependency)):
-    return dictionary.lookup_word_enrich(word, session=session)
-
-
-@router.post("/api/vocab", response_model=schemas.VocabRead)
-def add_vocab(request: schemas.VocabCreate, session: Session = Depends(database.session_dependency)):
-    word_data = dictionary.lookup_word_fast(request.word)
-    if request.wordbook_id:
-        card = crud.save_vocab_with_context(
-            session,
-            {
-                **word_data,
-                "wordbook_id": request.wordbook_id,
-                "source_platform": "wordbook",
-                "source_video_id": f"wordbook-{request.wordbook_id}",
-            },
-        )
-    else:
-        card = crud.add_word_to_vocab(session, word_data)
-    return crud.vocab_to_read(session, card)
-
-
-@router.post("/api/vocab/save", response_model=schemas.VocabRead)
-def save_vocab_from_extension(
-    request: schemas.VocabSaveContext,
+old = """@router.get("/api/vocab", response_model=list[schemas.VocabRead])
+def list_vocab(
+    source_video_id: str | None = Query(None),
+    wordbook_id: int | None = Query(None),
     session: Session = Depends(database.session_dependency),
 ):
-    """插件收藏：带视频语境 + 自动查词"""
-    word_data = dictionary.lookup_word_fast(request.word)
-    payload = {
-        **request.model_dump(),
-        "definition": request.definition or word_data.get("definition", ""),
-        "pronunciation": request.pronunciation or word_data.get("pronunciation"),
-        "part_of_speech": request.part_of_speech or word_data.get("part_of_speech"),
-        "translation": request.translation or word_data.get("translation"),
-    }
-    card = crud.save_vocab_with_context(session, payload)
-    return crud.vocab_to_read(session, card)
-
-
-@router.get("/api/vocab", response_model=list[schemas.VocabRead])
+    items = crud.list_vocab(session, source_video_id=source_video_id, wordbook_id=wordbook_id)
+    return crud.vocab_to_read_many(session, items)
+"""
+new = """@router.get("/api/vocab", response_model=list[schemas.VocabRead])
 def list_vocab(
     source_video_id: str | None = Query(None),
     wordbook_id: int | None = Query(None),
@@ -203,41 +246,8 @@ def vocab_study_star(
         crud.delete_vocab_card(session, card)
         session.commit()
     return {"ok": True, "starred": False}
-
-
-@router.get("/api/vocab/videos", response_model=list[schemas.VideoVocabSummary])
-def list_vocab_videos(session: Session = Depends(database.session_dependency)):
-    return crud.list_video_summaries(session)
-
-
-@router.post("/api/translate/batch")
-def translate_batch(request: schemas.TranslateBatchRequest):
-    """插件批量翻译字幕"""
-    results = translator.translate_batch(
-        request.texts, source=request.source, target=request.target
-    )
-    return {"translations": results}
-
-
-def _delete_vocab_card(session: Session, card: models.VocabItem) -> None:
-    crud.delete_vocab_card(session, card)
-    session.commit()
-
-
-@router.delete("/api/vocab/{vocab_id}")
-def delete_vocab(vocab_id: int, session: Session = Depends(database.session_dependency)):
-    card = crud.get_vocab_card(session, vocab_id)
-    if not card:
-        raise HTTPException(status_code=404, detail="Vocabulary card not found")
-    _delete_vocab_card(session, card)
-    return {"ok": True}
-
-
-@router.delete("/api/vocab/by-word/{word}")
-def delete_vocab_by_word(word: str, session: Session = Depends(database.session_dependency)):
-    """按单词取消收藏（用于词书刷词页星标取消）。"""
-    card = crud.find_vocab_by_word(session, word)
-    if not card:
-        return {"ok": True, "removed": False}
-    _delete_vocab_card(session, card)
-    return {"ok": True, "removed": True}
+"""
+vocab = replace_once(vocab, old, new, "list_vocab route")
+vocab_path.write_text(vocab, encoding="utf-8")
+print("patched vocabulary.py")
+print("backend ok")

@@ -449,95 +449,34 @@ jumpPageInput?.addEventListener('keydown', (event) => {
 function speakWord(word) {
   const w = String(word || '').trim();
   if (!w) return;
+  try { window.speechSynthesis && window.speechSynthesis.getVoices(); } catch (_) {}
   try {
-    if (window.AndroidDictionary && typeof window.AndroidDictionary.speak === 'function') {
-      window.AndroidDictionary.speak(w);
-      return;
+    const bridge = window.AndroidDictionary;
+    if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
+  } catch (_) {}
+  try {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(w);
+      u.lang = 'en-US';
+      u.rate = 1.08;
+      const voices = window.speechSynthesis.getVoices() || [];
+      const voice = voices.find((v) => /en-US/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang));
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
     }
-  } catch (_) { /* fall through */ }
-  if (!('speechSynthesis' in window)) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(w);
-  utterance.lang = 'en-US';
-  utterance.rate = 0.9;
-  window.speechSynthesis.speak(utterance);
+  } catch (_) {}
+  try {
+    if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
+    const audio = window._wpSpeakAudio;
+    audio.onerror = null;
+    audio.onplaying = () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {} };
+    try { audio.pause(); } catch (_) {}
+    audio.src = '/api/tts?q=' + encodeURIComponent(w);
+    const play = audio.play();
+    if (play && play.catch) play.catch((err) => { if (err && err.name === 'AbortError') return; });
+  } catch (_) {}
 }
-
-entriesList?.addEventListener('click', async (event) => {
-  const speakBtn = event.target.closest('[data-speak-word]');
-  if (speakBtn) {
-    const word = speakBtn.dataset.speakWord;
-    if (word) speakWord(word);
-    return;
-  }
-
-  const unknownBtn = event.target.closest('[data-unknown-entry-id]');
-  if (unknownBtn) {
-    const entryId = parseInt(unknownBtn.dataset.unknownEntryId || '0', 10);
-    const entry = currentEntryMap.get(String(entryId));
-    if (!entry) return;
-    try {
-      await api('/api/vocab/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          word: entry.word,
-          source_platform: 'wordbook',
-          source_video_id: `wordbook-${wordbookId}`,
-          source_url: `/wordbook?id=${wordbookId}`,
-          source_title: currentWordbook?.name || '词书',
-          sentence: entry.example || entry.definition || '',
-          sentence_translation: entry.translation || '',
-          definition: entry.definition || '',
-          pronunciation: entry.pronunciation || '',
-          part_of_speech: entry.part_of_speech || '',
-          translation: entry.translation || '',
-          wordbook_id: wordbookId,
-        }),
-      });
-      starredWords.add(normalizeWord(entry.word));
-      setStatus(`「${entry.word}」已进生词本`, 'success');
-      if (currentPageState) renderEntries(currentPageState);
-    } catch (err) {
-      setStatus(err.message, 'error');
-    }
-    return;
-  }
-
-  const knowBtn = event.target.closest('[data-know-entry-id]');
-  if (knowBtn) {
-    const entryId = parseInt(knowBtn.dataset.knowEntryId || '0', 10);
-    const entry = currentEntryMap.get(String(entryId));
-    if (!entry) return;
-    try {
-      await api(`/api/vocab/by-word/${encodeURIComponent(entry.word)}`, { method: 'DELETE' });
-      starredWords.delete(normalizeWord(entry.word));
-      setStatus(`「${entry.word}」标记为会`, 'success');
-      if (currentPageState) renderEntries(currentPageState);
-    } catch (_) {
-      setStatus(`「${entry.word}」已会，继续下一个吧`, 'success');
-    }
-    return;
-  }
-
-  const button = event.target.closest('[data-save-entry-id]');
-  if (!button) return;
-  const entryId = parseInt(button.dataset.saveEntryId || '0', 10);
-  if (!entryId) return;
-  await toggleWord(entryId);
-});
-
-onlySavedToggle?.addEventListener('change', async () => {
-  onlySaved = onlySavedToggle.checked;
-  currentPage = 1;
-  syncUrl();
-  try {
-    await loadEntries({ scrollTop: true });
-  } catch (err) {
-    setStatus(err.message, 'error');
-  }
-});
-
 function renderDetailWordPreview(payload) {
   if (!detailWordPreview) return;
   if (!payload?.word) {

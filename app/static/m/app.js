@@ -354,59 +354,153 @@
   }
 
   /** Word TTS: same-origin /api/tts first — never silent-return on Android bridge alone. */
-  function speakWord(word) {
-    const w = String(word || '').trim();
-    if (!w) {
-      toast('没有可朗读的单词');
-      return;
-    }
-    // Guaranteed audible path for App WebView (old APK used to swallow speak() and return).
-    speakViaServerTts(w);
+  const _ttsCache = new Map();
+  let _ttsGen = 0;
+  let _ttsWarm = false;
+
+  function ttsKey(word) {
+    return String(word || '').trim().toLowerCase();
   }
 
-  window.__wpSpeakFallback = function (word) {
-    speakViaServerTts(String(word || '').trim());
-  };
+  function unlockTts() {
+    if (_ttsWarm) return;
+    _ttsWarm = true;
+    try {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.getVoices();
+        const warm = new SpeechSynthesisUtterance(' ');
+        warm.volume = 0;
+        window.speechSynthesis.speak(warm);
+        window.speechSynthesis.cancel();
+      }
+    } catch (_) {}
+    try {
+      if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
+      window._wpSpeakAudio.preload = 'auto';
+    } catch (_) {}
+  }
 
-  function speakViaServerTts(word) {
-    const w = String(word || '').trim();
-    if (!w) return;
-    const sources = [
-      '/api/tts?q=' + encodeURIComponent(w),
-      'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(w),
-      'https://dict.youdao.com/dictvoice?type=1&audio=' + encodeURIComponent(w),
-    ];
+  function pickEnVoice() {
+    try {
+      const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+      return (
+        voices.find((v) => /en-US/i.test(v.lang) && /google|natural|enhanced|premium/i.test(v.name || '')) ||
+        voices.find((v) => /^en(-|_|$)/i.test(v.lang)) ||
+        null
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function speakLocalNow(word) {
+    let started = false;
+    try {
+      const bridge = window.AndroidDictionary;
+      if (bridge && typeof bridge.speak === 'function') {
+        bridge.speak(word);
+        started = true;
+      }
+    } catch (_) {}
+    try {
+      if (!window.speechSynthesis) return started;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(word);
+      u.lang = 'en-US';
+      u.rate = 1.08;
+      u.pitch = 1;
+      const voice = pickEnVoice();
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
+      started = true;
+    } catch (_) {}
+    return started;
+  }
+
+  function playCachedAudio(url, gen) {
     try {
       if (!window._wpSpeakAudio) window._wpSpeakAudio = new Audio();
       const audio = window._wpSpeakAudio;
+      audio.onerror = null;
       try { audio.pause(); } catch (_) {}
-      let i = 0;
-      const tryNative = () => {
-        try {
-          const bridge = window.AndroidDictionary;
-          if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
-        } catch (_) {}
-      };
-      const tryNext = () => {
-        if (i >= sources.length) {
-          // Last resort: system TTS on device.
-          tryNative();
-          return;
-        }
-        const src = sources[i++];
-        audio.onerror = tryNext;
-        audio.src = src;
-        const play = audio.play();
-        if (play && typeof play.catch === 'function') play.catch(tryNext);
-      };
-      tryNext();
+      audio.src = url;
+      const play = audio.play();
+      if (play && typeof play.catch === 'function') {
+        play.catch((err) => {
+          if (gen !== _ttsGen) return;
+          if (err && err.name === 'AbortError') return;
+        });
+      }
+      return true;
     } catch (_) {
-      try {
-        const bridge = window.AndroidDictionary;
-        if (bridge && typeof bridge.speak === 'function') bridge.speak(w);
-      } catch (__) {}
+      return false;
     }
   }
+
+  async function fetchTtsBlob(word) {
+    const urls = [
+      '/api/tts?q=' + encodeURIComponent(word),
+      'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(word),
+    ];
+    for (const url of urls) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2500);
+        const resp = await fetch(url, { signal: ctrl.signal, cache: 'force-cache' });
+        clearTimeout(timer);
+        if (!resp.ok) continue;
+        const blob = await resp.blob();
+        if (!blob || blob.size < 64) continue;
+        return URL.createObjectURL(blob);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function prefetchSpeak(word) {
+    const key = ttsKey(word);
+    if (!key) return null;
+    const hit = _ttsCache.get(key);
+    if (hit) return hit;
+    const pending = fetchTtsBlob(word).then((url) => {
+      if (url) _ttsCache.set(key, url);
+      else _ttsCache.delete(key);
+      return url;
+    });
+    _ttsCache.set(key, pending);
+    return pending;
+  }
+
+  function speakWord(word) {
+    const w = String(word || '').trim();
+    if (!w) return;
+    unlockTts();
+    const gen = ++_ttsGen;
+    const key = ttsKey(w);
+    const cached = _ttsCache.get(key);
+
+    if (typeof cached === 'string') {
+      playCachedAudio(cached, gen);
+      return;
+    }
+
+    // Instant: local engine first, never wait on the network.
+    speakLocalNow(w);
+    const pending = cached && typeof cached.then === 'function' ? cached : prefetchSpeak(w);
+    const t0 = Date.now();
+    Promise.resolve(pending).then((url) => {
+      if (!url || gen !== _ttsGen) return;
+      // If real audio lands quickly, switch to it (clearer than device TTS).
+      if (Date.now() - t0 < 420) {
+        try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (_) {}
+        playCachedAudio(url, gen);
+      }
+    });
+  }
+
+  window.__wpSpeakFallback = function (word) {
+    speakWord(String(word || '').trim());
+  };
 
   function speakBtnHtml(word, extraClass = '', { as = 'button' } = {}) {
     const w = String(word || '').trim();
@@ -1148,13 +1242,73 @@
     });
   }
 
-  async function startStudy(wordbookId) {
+  function studyFeedBase(s) {
+    return s.isVocabBook ? '/api/vocab/study-feed' : `/api/wordbooks/${s.wordbookId}/study-feed`;
+  }
+  function studyCursorPath(s) {
+    return s.isVocabBook ? '/api/vocab/study-cursor' : `/api/wordbooks/${s.wordbookId}/study-cursor`;
+  }
+  function studyStarPath(s) {
+    return s.isVocabBook ? '/api/vocab/study-star' : `/api/wordbooks/${s.wordbookId}/study-star`;
+  }
+
+  async function exitStudy() {
+    const s = state.study;
+    const wasVocab = !!s?.isVocabBook;
+    if (s) {
+      await saveStudyCursor(true);
+      if (!wasVocab) patchBookProgressFromStudy();
+      if (!wasVocab) writeLastStudyBook(s.wordbookId);
+      if (s.wordbookId != null && s.lastSavedCursor != null) {
+        writeLocalStudyCursor(s.wordbookId, s.lastSavedCursor);
+      }
+    }
     teardownStudyObservers();
-    const localCursor = readLocalStudyCursor(wordbookId);
-    writeLastStudyBook(wordbookId);
+    state.study = null;
+    if (wasVocab) {
+      setTab('vocab');
+      return;
+    }
+    renderBooks();
+    loadBooks().catch(() => {});
+  }
+
+  function renderStudySkeleton() {
+    const root = $('#view-books');
+    if (!root || !state.study) return;
+    const s = state.study;
+    root.innerHTML = `
+      <div class="study-top">
+        <button class="study-back" id="exitStudy" type="button" aria-label="back">` + "\u2190" + `</button>
+        <div class="study-top-main">
+          <div class="study-top-title">${escapeHtml(s.name || 'book')}</div>
+          <div class="study-top-meta">...</div>
+          <div class="progress-bar-wrap"><div class="progress-bar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div id="studyList" class="study-list">
+        ${Array.from({ length: 6 }).map(() => '<article class="study-row skeleton-row"></article>').join('')}
+      </div>`;
+    $('#exitStudy').onclick = () => { exitStudy(); };
+  }
+
+  function openVocabBook() {
+    state.tab = 'books';
+    $$('#tabNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === 'books'));
+    $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-books'));
+    startStudy('vocab', { vocabBook: true }).catch((e) => toast(e.message || 'fail'));
+  }
+
+  async function startStudy(wordbookId, { vocabBook = false } = {}) {
+    teardownStudyObservers();
+    const isVocabBook = !!(vocabBook || wordbookId === 'vocab');
+    const cursorKey = isVocabBook ? 'vocab' : wordbookId;
+    const localCursor = readLocalStudyCursor(cursorKey);
+    if (!isVocabBook) writeLastStudyBook(wordbookId);
     state.study = {
-      wordbookId,
-      name: '',
+      wordbookId: cursorKey,
+      isVocabBook,
+      name: isVocabBook ? '\u751f\u8bcd\u4e66' : '',
       items: [],
       starred: new Set(),
       progress: null,
@@ -1180,6 +1334,7 @@
       prefetching: false,
       serverCursorDirty: false,
     };
+    renderStudySkeleton();
     await loadStudyPage('resume');
   }
 
@@ -1331,16 +1486,16 @@
         btn.classList.add('pop');
         setTimeout(() => btn.classList.remove('pop'), 280);
         try {
-          const res = await api(`/api/wordbooks/${s.wordbookId}/study-star`, {
+          const res = await api(studyStarPath(s), {
             method: 'POST',
-            body: { entry_id: id, starred: on },
+            body: s.isVocabBook ? { vocab_id: id, starred: on } : { entry_id: id, starred: on },
           });
           if (res.progress) {
             s.progress = res.progress;
             updateStudyProgressUi();
           }
-          toast(on ? '已进生词本' : '已取消');
-          refreshVocab().catch(() => {});
+          toast(s.isVocabBook ? (on ? '仍在生词本' : '已移出') : (on ? '已进生词本' : '已取消'));
+          if (!s.isVocabBook) refreshVocab().catch(() => {});
         } catch (e) { toast(e.message); }
       });
     });
@@ -1407,7 +1562,7 @@
   }
 
   /** Keep DOM small: only ~WINDOW rows stay mounted while scrolling a large book. */
-  const STUDY_DOM_WINDOW = 72;
+  const STUDY_DOM_WINDOW = 40;
 
   function trimStudyDom(direction) {
     const s = state.study;
@@ -1521,11 +1676,11 @@
     }
 
     const seq = (s.feedSeq = (s.feedSeq || 0) + 1);
-    const pageSize = 36;
+    const pageSize = 20;
     updateStudySentinels();
 
     try {
-      let url = `/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}`;
+      let url = `${studyFeedBase(s)}?limit=${pageSize}`;
       if (mode === 'after') {
         // Use prefetched page if available.
         if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(s.nextOffset)) {
@@ -1544,7 +1699,7 @@
       } else if (mode === 'before') {
         const limit = Math.min(pageSize, s.startOffset);
         const offset = Math.max(0, s.startOffset - limit);
-        url = `/api/wordbooks/${s.wordbookId}/study-feed?limit=${limit}&offset=${offset}`;
+        url = `${studyFeedBase(s)}?limit=${limit}&offset=${offset}`;
       } else if (mode === 'resume') {
         const local = s.localResumeOffset;
         if (local != null && Number.isFinite(local) && local >= 0) {
@@ -1565,7 +1720,7 @@
         const pageEnd = pageStart + (data.items || []).length;
         if ((data.items || []).length && (target < pageStart || target >= pageEnd)) {
           data = await api(
-            `/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}&offset=${target}`
+            `${studyFeedBase(s)}?limit=${pageSize}&offset=${target}`
           );
           if (state.study !== s || seq !== s.feedSeq) return;
         }
@@ -1616,8 +1771,8 @@
     const next = s.nextOffset;
     if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(next)) return;
     s.prefetching = true;
-    const pageSize = 36;
-    api(`/api/wordbooks/${s.wordbookId}/study-feed?limit=${pageSize}&offset=${next}`)
+    const pageSize = 20;
+    api(`${studyFeedBase(s)}?limit=${pageSize}&offset=${next}`)
       .then((data) => {
         if (state.study !== s) return;
         if (Number(data.offset) === Number(s.nextOffset)) s.prefetchAfter = data;
@@ -1658,7 +1813,7 @@
     s.lastSavedCursor = cursor;
     updateStudyProgressUi();
     try {
-      const res = await api(`/api/wordbooks/${s.wordbookId}/study-cursor`, {
+      const res = await api(studyCursorPath(s), {
         method: 'POST',
         body: { cursor },
       });
@@ -1720,6 +1875,12 @@
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = 0;
         const y = window.scrollY;
+        const topEl = $('.study-top');
+        if (topEl) {
+          if (y < 20) topEl.classList.remove('is-away');
+          else if (y + 6 < (s.lastScrollY || 0)) topEl.classList.remove('is-away');
+          else if (y > (s.lastScrollY || 0) + 6) topEl.classList.add('is-away');
+        }
         if (y + 8 < (s.lastScrollY || 0)) {
           if (!s.allowLoadBefore) {
             s.allowLoadBefore = true;
@@ -1788,21 +1949,10 @@
           : (total ? `▼ 词书末尾（第 ${total} 个词）` : '▼ 词书末尾')
       }</div>`;
 
-    $('#exitStudy').onclick = async () => {
-      await saveStudyCursor(true);
-      patchBookProgressFromStudy();
-      writeLastStudyBook(state.study?.wordbookId);
-      if (state.study?.wordbookId != null && state.study.lastSavedCursor != null) {
-        writeLocalStudyCursor(state.study.wordbookId, state.study.lastSavedCursor);
-      }
-      teardownStudyObservers();
-      state.study = null;
-      // Instant back — do not await full /api/wordbooks (was the slow return).
-      renderBooks();
-      loadBooks().catch(() => {});
-    };
+    $('#exitStudy').onclick = () => { exitStudy(); };
 
     bindStudyStarButtons(root);
+    (s.items || []).slice(0, 10).forEach((it) => { if (it?.word) prefetchSpeak(it.word); });
     const jumpTo = s.lastSavedCursor != null ? s.lastSavedCursor : s.resumeTarget;
     if (jumpTo != null) {
       s.resumeTarget = jumpTo;
@@ -1820,12 +1970,7 @@
 
   // ---------- Vocab + Daily FSRS ----------
   async function loadVocab() {
-    const [vocab, due] = await Promise.all([
-      api('/api/vocab'),
-      api('/api/recommendations'),
-    ]);
-    state.vocab = vocab;
-    state.due = due;
+    state.due = await api('/api/recommendations');
   }
 
   /** Reload vocab cache; re-render if user is on the 生词 tab. */
@@ -1838,14 +1983,16 @@
     const root = $('#view-vocab');
     const due = state.due || [];
     const current = due[0];
-    const warehouse = state.vocab || [];
     root.innerHTML = `
       <div class="m-hero">
         <h1>生词 · 记忆</h1>
-        <p>到期词逐个练习；生词本可随时移出。</p>
+        <p>到期词逐个练习。完整列表在「生词书」里，和词书一样记住位置。</p>
       </div>
       <div class="m-card">
-        <h2>今日练习 · 到期 ${due.length} 个</h2>
+        <div class="m-card-head">
+          <h2>今日练习 · 到期 ${due.length} 个</h2>
+          <button class="m-btn m-btn-primary" id="openVocabBookBtn" type="button">生词书</button>
+        </div>
         <p class="m-muted" style="margin:0 0 12px;">「会」延后复习，「不会」尽快再练。练习不会删词。</p>
         ${current ? `
           <div class="flash-card">
@@ -1861,53 +2008,36 @@
             <button class="m-btn m-btn-danger" id="reviewUnknown" type="button">不会</button>
           </div>
         ` : '<p class="m-muted">暂无到期词。去阅读 / 词书 / 对战收藏生词后，到期会自动出现在这里。</p>'}
-      </div>
-      <div class="m-card">
-        <h2>生词本 · 全部 (${warehouse.length})</h2>
-        <p class="m-muted" style="margin:0 0 10px;">点 ✕ 移出后不再推送练习。</p>
-        ${warehouse.map((v) => `
-          <div class="m-list-item">
-            <span>
-              <strong>${escapeHtml(v.word)}</strong>
-              <span class="m-muted">${escapeHtml(v.pronunciation || '')}</span>
-              <span class="m-muted">${escapeHtml(v.translation || v.definition || '')}</span>
-            </span>
-            <span class="m-list-actions">
-              ${speakBtnHtml(v.word, 'speak-btn-sm')}
-              <button class="remove-btn speak-btn-sm" data-remove-vocab="${v.id}" type="button" aria-label="移出 ${escapeHtml(v.word)}" title="移出">✕</button>
-            </span>
-          </div>`).join('') || '<p class="m-muted">生词本是空的</p>'}
       </div>`;
 
+    $('#openVocabBookBtn')?.addEventListener('click', () => openVocabBook());
     $('#reviewKnow')?.addEventListener('click', () => reviewDueCard(true));
     $('#reviewUnknown')?.addEventListener('click', () => reviewDueCard(false));
-    $$('[data-remove-vocab]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        try {
-          await api(`/api/vocab/${btn.dataset.removeVocab}`, { method: 'DELETE' });
-          await loadVocab();
-          toast('已移出生词本');
-          renderVocab();
-        } catch (e) { toast(e.message); }
-      });
-    });
+    if (current?.word) prefetchSpeak(current.word);
   }
 
-  /** FSRS review only: 会→Good(4), 不会→Again(1). Never delete the card here. */
   async function reviewDueCard(know) {
     const card = (state.due || [])[0];
-    if (!card) return;
+    if (!card || state.reviewBusy) return;
+    state.reviewBusy = true;
+    $('#reviewKnow')?.setAttribute('disabled', 'disabled');
+    $('#reviewUnknown')?.setAttribute('disabled', 'disabled');
     try {
-      // Frontend shows only 会/不会; finer FSRS state stays in DB.
       await api('/api/review', {
         method: 'POST',
         body: { vocab_id: card.id, rating: know ? 4 : 1 },
       });
-      toast(know ? '会，已按计划延后' : '不会，稍后还会推送');
-      await loadVocab();
+      state.due = (state.due || []).slice(1);
       renderVocab();
+      api('/api/recommendations').then((due) => {
+        state.due = due;
+        if (state.tab === 'vocab' && !state.study) renderVocab();
+      }).catch(() => {});
     } catch (e) { toast(e.message); }
+    finally { state.reviewBusy = false; }
   }
+
+  /** FSRS review only: 会→Good(4), 不会→Again(1). Never delete the card here. */
 
   // ---------- PK ----------
   function pkAvatarMeta(name, index) {
@@ -2837,6 +2967,7 @@
       try { btn.focus({ preventScroll: true }); } catch (_) {}
     }
     try { btn.blur(); } catch (_) {}
+    unlockTts();
     speakWord(word);
   }, true);
 
@@ -2846,9 +2977,11 @@
     try {
       await Promise.all([loadReadings(), loadBooks(), loadVocab()]);
     } catch (e) { console.warn(e); }
+    unlockTts();
     fetchAppVersion().catch(() => {});
     refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
-    setTab('read');
+    if (location.hash === '#vocab-book') openVocabBook();
+    else setTab('read');
   }
   boot();
 })();

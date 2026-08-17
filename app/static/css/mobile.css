@@ -693,6 +693,7 @@ body.eyecare .reader-zh { color: #3d5c45; }
   position: sticky;
   top: 58px;
   z-index: 12;
+  transition: opacity 0.22s ease, transform 0.22s ease;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 10px;
@@ -716,6 +717,31 @@ body.eyecare .reader-zh { color: #3d5c45; }
   font-weight: 800;
   cursor: pointer;
 }
+.study-top.is-away {
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+}
+.skeleton-row {
+  min-height: 88px;
+  border-radius: 18px;
+  background: linear-gradient(90deg, #f3f3f6 25%, #ececf1 37%, #f3f3f6 63%);
+  background-size: 400% 100%;
+  animation: vocabSk 1.15s ease infinite;
+}
+@keyframes vocabSk {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+.m-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+.m-card-head h2 { margin: 0; }
+.m-card-head .m-btn { flex: 0 0 auto; padding: 8px 14px; }
 .study-top-title {
   font-family: var(--font-display);
   font-weight: 800;
