@@ -297,7 +297,13 @@ def study_feed(
 
     memory = get_or_create_memory(session, wordbook_id, user_id=uid)
     total = _total_entries(session, wordbook_id)
-    # Read path: never write/refresh — live `total` is returned in the payload.
+    # Read path: avoid a Neon write on every scroll page (was a major latency source).
+    if int(memory.total_count or 0) != int(total):
+        memory.total_count = total
+        memory.updated_at = datetime.utcnow()
+        session.add(memory)
+        session.commit()
+        session.refresh(memory)
 
     limit = max(1, min(80, limit))
     # Browse by absolute offset; omit offset → open at saved resume position.
@@ -329,6 +335,7 @@ def study_feed(
                 "word": e.get("word") or "",
                 "pronunciation": e.get("pronunciation") or "",
                 "translation": e.get("translation") or e.get("definition") or "",
+                "definition": e.get("definition") or "",
                 "starred": (e.get("word") or "") in starred_words,
                 "offset": start + i,
                 "index": start + i + 1,
@@ -361,6 +368,7 @@ def study_feed(
                 "word": e.word,
                 "pronunciation": e.pronunciation or "",
                 "translation": e.translation or e.definition or "",
+                "definition": e.definition or "",
                 "starred": e.id in starred_ids,
                 "offset": start + i,
                 "index": start + i + 1,

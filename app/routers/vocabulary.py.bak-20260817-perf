@@ -144,12 +144,8 @@ def vocab_study_feed(
     session: Session = Depends(database.session_dependency),
 ):
     total = crud.count_vocab(session)
-    if offset is None:
-        saved = _read_vocab_cursor(session)
-        start = saved
-    else:
-        start = max(0, int(offset))
-        saved = start
+    saved = _read_vocab_cursor(session)
+    start = saved if offset is None else max(0, int(offset))
     if total:
         start = min(start, max(0, total - 1))
     items_raw = crud.list_vocab_page(session, offset=start, limit=limit)
@@ -160,9 +156,11 @@ def vocab_study_feed(
             "word": card.word,
             "pronunciation": card.pronunciation or "",
             "translation": card.translation or card.definition or "",
+            "definition": card.definition or "",
             "starred": True,
             "offset": start + i,
             "index": start + i + 1,
+            "source": "vocab",
         })
     end = start + len(items)
     progress = _vocab_progress(total, start)

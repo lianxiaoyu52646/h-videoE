@@ -437,7 +437,7 @@ class VocabItem(SQLModel, table=True):
     lapses: int = Field(default=0)
     state: int = Field(default=0)
     last_review: Optional[datetime] = None
-    due: datetime = Field(default_factory=datetime.utcnow, index=True)
+    due: datetime = Field(default_factory=datetime.utcnow)
     contexts: List["VocabContext"] = Relationship(back_populates="vocab")
     review_logs: List["ReviewLog"] = Relationship(back_populates="vocab")
 

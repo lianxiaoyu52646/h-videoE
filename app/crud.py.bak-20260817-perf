@@ -453,22 +453,11 @@ def list_vocab_page(
     limit: int = 24,
     user_id: int | None = None,
 ):
-    """Stable id-order page for vocab-book study feed (lean columns)."""
-    from sqlalchemy.orm import load_only
-
+    """Stable id-order page for vocab-book study feed."""
     limit = max(1, min(100, int(limit or 24)))
     offset = max(0, int(offset or 0))
     stmt = (
         select(models.VocabItem)
-        .options(
-            load_only(
-                models.VocabItem.id,
-                models.VocabItem.word,
-                models.VocabItem.pronunciation,
-                models.VocabItem.translation,
-                models.VocabItem.definition,
-            )
-        )
         .order_by(models.VocabItem.id.asc())
         .offset(offset)
         .limit(limit)
@@ -526,22 +515,16 @@ def get_due_vocab(
     *,
     wordbook_id: int | None = None,
     user_id: int | None = None,
-    limit: int | None = 24,
 ):
-    """Return due cards for FSRS practice queue (default cap 24)."""
-    cap = None if not limit else max(1, min(80, int(limit)))
+    """Return all due cards for FSRS practice queue (no count limit)."""
     stmt = select(models.VocabItem).where(models.VocabItem.due <= now)
     stmt = _apply_user_scope(stmt, models.VocabItem, user_id)
     if wordbook_id is not None:
         stmt = stmt.where(models.VocabItem.wordbook_id == wordbook_id)
-    stmt = stmt.order_by(models.VocabItem.due.asc())
+    items = session.exec(stmt.order_by(models.VocabItem.due.asc())).all()
     if source_video_id:
-        items = session.exec(stmt).all()
         items = [item for item in items if _card_matches_source(session, item, source_video_id)]
-        return items[:cap] if cap else items
-    if cap:
-        stmt = stmt.limit(cap)
-    return list(session.exec(stmt).all())
+    return items
 
 
 def get_all_vocab_for_practice(
@@ -574,6 +557,9 @@ def review_vocab(
         return None
     due_before = card.due
     fsrs_scheduler.review_card(card, rating)
+    session.add(card)
+    session.commit()
+    session.refresh(card)
     log = models.ReviewLog(
         user_id=card.user_id,
         vocab_id=card.id,
@@ -584,9 +570,9 @@ def review_vocab(
         stability_after=card.stability,
         difficulty_after=card.difficulty,
     )
-    session.add(card)
     session.add(log)
     session.commit()
+    session.refresh(card)
     return card
 
 

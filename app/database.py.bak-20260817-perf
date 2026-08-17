@@ -245,8 +245,6 @@ def _migrate_sqlite_schema() -> None:
             "WHERE translation IS NOT NULL AND length(trim(translation)) > 0"
         )
         cur.execute("CREATE INDEX IF NOT EXISTS ix_vocabcard_user_word ON vocabcard (user_id, word)")
-        cur.execute("CREATE INDEX IF NOT EXISTS ix_vocabcard_user_due ON vocabcard (user_id, due)")
-        cur.execute("CREATE INDEX IF NOT EXISTS ix_vocabcard_user_id ON vocabcard (user_id, id)")
         cur.execute("CREATE INDEX IF NOT EXISTS ix_video_user_created ON video (user_id, created_at)")
         cur.execute(
             "CREATE INDEX IF NOT EXISTS ix_readingdocument_user_created "
@@ -284,28 +282,11 @@ def _enable_sqlite_wal() -> None:
         conn.close()
 
 
-def _ensure_vocab_perf_indexes() -> None:
-    from sqlalchemy import text as sa_text
-
-    stmts = (
-        "CREATE INDEX IF NOT EXISTS ix_vocabcard_user_due ON vocabcard (user_id, due)",
-        "CREATE INDEX IF NOT EXISTS ix_vocabcard_user_id ON vocabcard (user_id, id)",
-    )
-    try:
-        with engine.begin() as conn:
-            for stmt in stmts:
-                conn.execute(sa_text(stmt))
-    except Exception:
-        pass
-
-
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     if settings.is_sqlite:
         _migrate_sqlite_schema()
         _enable_sqlite_wal()
-    else:
-        _ensure_vocab_perf_indexes()
     try:
         from app.services.reading_search import ensure_fts_schema
 

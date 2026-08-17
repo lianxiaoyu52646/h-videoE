@@ -169,7 +169,7 @@ function renderVocab(items) {
 
 async function loadRecommendations() {
   try {
-    reviewQueue = await api(`/api/recommendations${getFilterParam()}${currentFilter ? '&' : '?'}limit=80`);
+    reviewQueue = await api(`/api/recommendations${getFilterParam()}`);
     reviewIdx = 0;
     showAnswer = false;
     renderReview();
@@ -259,13 +259,13 @@ function renderReview() {
   `;
   document.getElementById('speakReviewWord')?.addEventListener('click', () => speakWord(card.word));
   reviewArea.querySelectorAll('.review-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const rating = parseInt(btn.dataset.rating);
-      api('/api/review', {
+      await api('/api/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vocab_id: card.id, rating }),
-      }).catch(() => {});
+      });
       reviewIdx++;
       showAnswer = false;
       renderReview();

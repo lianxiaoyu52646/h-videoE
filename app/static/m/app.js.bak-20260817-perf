@@ -1540,7 +1540,9 @@
   function appendStudyRows(items) {
     const list = $('#studyList');
     if (!list || !items.length) return;
-    list.insertAdjacentHTML('beforeend', items.map((it) => studyRowHtml(it, { animate: false })).join(''));
+    const wrap = document.createElement('div');
+    wrap.innerHTML = items.map((it) => studyRowHtml(it, { animate: false })).join('');
+    [...wrap.children].forEach((n) => list.appendChild(n));
     bindStudyStarButtons(list);
     if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
   }
@@ -1550,15 +1552,17 @@
     if (!list || !items.length) return;
     const height = document.documentElement.scrollHeight;
     const y = window.scrollY;
-    list.insertAdjacentHTML('afterbegin', items.map((it) => studyRowHtml(it, { animate: false })).join(''));
+    const wrap = document.createElement('div');
+    wrap.innerHTML = items.map((it) => studyRowHtml(it, { animate: false })).join('');
+    const first = list.firstChild;
+    [...wrap.children].forEach((n) => list.insertBefore(n, first));
     bindStudyStarButtons(list);
     window.scrollTo(0, y + (document.documentElement.scrollHeight - height));
     if (state.study?.activeOffset != null) setActiveStudyRow(state.study.activeOffset);
   }
 
   /** Keep DOM small: only ~WINDOW rows stay mounted while scrolling a large book. */
-  const STUDY_PAGE_SIZE = 12;
-  const STUDY_DOM_WINDOW = 24;
+  const STUDY_DOM_WINDOW = 40;
 
   function trimStudyDom(direction) {
     const s = state.study;
@@ -1569,25 +1573,23 @@
     if (drop <= 0) return;
 
     if (direction === 'after') {
+      // Scrolling down: drop oldest rows from top, preserve scroll position.
       const height = document.documentElement.scrollHeight;
       const y = window.scrollY;
-      s.items.splice(0, drop);
-      const firstKeep = s.items[0]?.offset;
-      while (list.firstElementChild) {
-        const el = list.firstElementChild;
-        if (el.classList.contains('study-row') && Number(el.dataset.offset) === Number(firstKeep)) break;
-        el.remove();
-      }
+      const removed = s.items.splice(0, drop);
+      removed.forEach((it) => {
+        const el = list.querySelector(`.study-row[data-offset="${it.offset}"]`);
+        if (el) el.remove();
+      });
       s.startOffset = Number(s.items[0]?.offset ?? s.startOffset);
       window.scrollTo(0, Math.max(0, y - (height - document.documentElement.scrollHeight)));
     } else if (direction === 'before') {
-      s.items.splice(s.items.length - drop, drop);
-      const lastKeep = s.items[s.items.length - 1]?.offset;
-      while (list.lastElementChild) {
-        const el = list.lastElementChild;
-        if (el.classList.contains('study-row') && Number(el.dataset.offset) === Number(lastKeep)) break;
-        el.remove();
-      }
+      // Scrolling up: drop newest rows from bottom.
+      const removed = s.items.splice(s.items.length - drop, drop);
+      removed.forEach((it) => {
+        const el = list.querySelector(`.study-row[data-offset="${it.offset}"]`);
+        if (el) el.remove();
+      });
       s.nextOffset = Number(s.items[s.items.length - 1]?.offset ?? s.nextOffset) + 1;
     }
     syncStudyBounds();
@@ -1674,7 +1676,7 @@
     }
 
     const seq = (s.feedSeq = (s.feedSeq || 0) + 1);
-    const pageSize = STUDY_PAGE_SIZE;
+    const pageSize = 20;
     updateStudySentinels();
 
     try {
@@ -1709,16 +1711,18 @@
 
       let resumeKeep = null;
       if (mode === 'resume') {
-        const pageStart = Number(data.offset ?? 0);
-        const local = s.localResumeOffset != null ? Math.floor(s.localResumeOffset) : pageStart;
-        const serverResume = Number(data.resume_offset ?? data.progress?.cursor ?? pageStart);
+        const serverResume = Number(data.resume_offset ?? data.progress?.cursor ?? 0);
+        const local = s.localResumeOffset != null ? Math.floor(s.localResumeOffset) : 0;
         let target = Math.max(serverResume, local);
         const totalHint = Number(data.total || 0);
         if (totalHint) target = Math.max(0, Math.min(target, totalHint - 1));
+        const pageStart = Number(data.offset ?? 0);
         const pageEnd = pageStart + (data.items || []).length;
-        // First paint with this page — do not block on a second GET.
-        if (!(data.items || []).length || target < pageStart || target >= pageEnd) {
-          target = pageStart;
+        if ((data.items || []).length && (target < pageStart || target >= pageEnd)) {
+          data = await api(
+            `${studyFeedBase(s)}?limit=${pageSize}&offset=${target}`
+          );
+          if (state.study !== s || seq !== s.feedSeq) return;
         }
         resumeKeep = target;
         writeLocalStudyCursor(s.wordbookId, target);
@@ -1767,7 +1771,7 @@
     const next = s.nextOffset;
     if (s.prefetchAfter && Number(s.prefetchAfter.offset) === Number(next)) return;
     s.prefetching = true;
-    const pageSize = STUDY_PAGE_SIZE;
+    const pageSize = 20;
     api(`${studyFeedBase(s)}?limit=${pageSize}&offset=${next}`)
       .then((data) => {
         if (state.study !== s) return;
@@ -1948,7 +1952,7 @@
     $('#exitStudy').onclick = () => { exitStudy(); };
 
     bindStudyStarButtons(root);
-    (s.items || []).slice(0, 2).forEach((it) => { if (it?.word) prefetchSpeak(it.word); });
+    (s.items || []).slice(0, 10).forEach((it) => { if (it?.word) prefetchSpeak(it.word); });
     const jumpTo = s.lastSavedCursor != null ? s.lastSavedCursor : s.resumeTarget;
     if (jumpTo != null) {
       s.resumeTarget = jumpTo;
@@ -1966,7 +1970,7 @@
 
   // ---------- Vocab + Daily FSRS ----------
   async function loadVocab() {
-    state.due = await api('/api/recommendations?limit=24');
+    state.due = await api('/api/recommendations');
   }
 
   /** Reload vocab cache; re-render if user is on the 生词 tab. */
@@ -1991,7 +1995,7 @@
         </div>
         <p class="m-muted" style="margin:0 0 12px;">「会」延后复习，「不会」尽快再练。练习不会删词。</p>
         ${current ? `
-          <div class="flash-card is-enter">
+          <div class="flash-card">
             <div class="flash-word-row">
               <div class="flash-word">${escapeHtml(current.word)}</div>
               ${speakBtnHtml(current.word, 'speak-btn-lg')}
@@ -2010,63 +2014,27 @@
     $('#reviewKnow')?.addEventListener('click', () => reviewDueCard(true));
     $('#reviewUnknown')?.addEventListener('click', () => reviewDueCard(false));
     if (current?.word) prefetchSpeak(current.word);
-    const nxt = due[1];
-    if (nxt?.word) prefetchSpeak(nxt.word);
   }
 
-  function paintDueCardFast() {
-    const due = state.due || [];
-    const current = due[0];
-    const root = $('#view-vocab');
-    const wordEl = $('.flash-word', root);
-    if (!current || !wordEl) {
-      renderVocab();
-      return;
-    }
-    wordEl.textContent = current.word || '';
-    const phon = $('.flash-phonetic', root);
-    if (phon) phon.textContent = current.pronunciation || '';
-    const meaning = $('.flash-meaning', root);
-    if (meaning) meaning.textContent = current.translation || current.definition || '';
-    const head = $('.m-card-head h2', root);
-    if (head) head.textContent = '\u4eca\u65e5\u7ec3\u4e60 \u00b7 \u5230\u671f ' + due.length + ' \u4e2a';
-    const speakBtn = $('.flash-card [data-speak-word]', root);
-    if (speakBtn && current.word) {
-      speakBtn.setAttribute('data-speak-word', current.word);
-      speakBtn.setAttribute('aria-label', '\u6717\u8bfb ' + current.word);
-    }
-    const next = due[1];
-    if (next?.word) prefetchSpeak(next.word);
-  }
-
-  function reviewDueCard(know) {
+  async function reviewDueCard(know) {
     const card = (state.due || [])[0];
     if (!card || state.reviewBusy) return;
     state.reviewBusy = true;
-    state.due = (state.due || []).slice(1);
-    paintDueCardFast();
-    setTimeout(() => { state.reviewBusy = false; }, 180);
-    api('/api/review', {
-      method: 'POST',
-      body: { vocab_id: card.id, rating: know ? 4 : 1 },
-    }).catch((e) => {
-      state.due = [card, ...(state.due || [])];
-      if (state.tab === 'vocab' && !state.study) paintDueCardFast();
-      toast(e.message);
-    });
-    if ((state.due || []).length <= 3) {
-      const skip = new Set([card.id, ...((state.due || []).map((c) => c.id))]);
-      api('/api/recommendations?limit=24').then((due) => {
-        const extra = (due || []).filter((c) => !skip.has(c.id));
-        if (!extra.length) return;
-        const wasEmpty = !(state.due || []).length;
-        state.due = [...(state.due || []), ...extra];
-        if (state.tab === 'vocab' && !state.study) {
-          if (wasEmpty) renderVocab();
-          else paintDueCardFast();
-        }
+    $('#reviewKnow')?.setAttribute('disabled', 'disabled');
+    $('#reviewUnknown')?.setAttribute('disabled', 'disabled');
+    try {
+      await api('/api/review', {
+        method: 'POST',
+        body: { vocab_id: card.id, rating: know ? 4 : 1 },
+      });
+      state.due = (state.due || []).slice(1);
+      renderVocab();
+      api('/api/recommendations').then((due) => {
+        state.due = due;
+        if (state.tab === 'vocab' && !state.study) renderVocab();
       }).catch(() => {});
-    }
+    } catch (e) { toast(e.message); }
+    finally { state.reviewBusy = false; }
   }
 
   /** FSRS review only: 会→Good(4), 不会→Again(1). Never delete the card here. */
