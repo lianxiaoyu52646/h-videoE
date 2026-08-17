@@ -549,7 +549,7 @@
   }
 
   async function fetchAppVersion() {
-    cachedAppVersion = await api('/api/app-version');
+    cachedAppVersion = await api('/api/app-version?_t=' + Date.now(), { cache: 'no-store' });
     // First visit: baseline so we don't nag until the next deploy.
     if (!localWebVersion() && cachedAppVersion?.web_content_version) {
       rememberWebVersion(cachedAppVersion.web_content_version);

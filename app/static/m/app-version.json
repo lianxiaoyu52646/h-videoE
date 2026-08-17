@@ -1,9 +1,9 @@
 {
-  "web_content_version": "20260804.7",
+  "web_content_version": "20260817.4",
   "android_version_code": 4,
   "android_version_name": "1.0.3",
   "android_apk_url": "",
   "android_novel_model_url": "https://www.modelscope.cn/models/qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/master/qwen2.5-1.5b-instruct-q4_k_m.gguf",
   "android_novel_model_name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-  "notes": "前台服务后台翻译：熄屏/切走App仍持续；需安装 App 1.0.3+"
+  "notes": "生词书独立页；喇叭点击立即发音"
 }

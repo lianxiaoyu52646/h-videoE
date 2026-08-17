@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app import database, schemas, security
@@ -221,7 +221,8 @@ def _load_app_version() -> schemas.AppVersionRead:
 
 
 @app.get("/api/app-version", response_model=schemas.AppVersionRead)
-def app_version():
+def app_version(response: Response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return _load_app_version()
 
 
