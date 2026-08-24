@@ -8,8 +8,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.KeyEvent;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.util.Log;
@@ -73,22 +74,11 @@ public class MainActivity extends AppCompatActivity implements NovelTranslateSer
         novelTranslator.prepare(NovelModelStore.DEFAULT_NAME);
         initTranslator();
 
-        webView = findViewById(R.id.webView);
+        VideoEnglishApplication app = (VideoEnglishApplication) getApplication();
+        webView = app.obtainWebView();
+        attachWebViewToActivity();
 
-        WebSettings webSettings = webView.getSettings();
-        webSettings.setJavaScriptEnabled(true);
-        webSettings.setDomStorageEnabled(true);
-        webSettings.setDatabaseEnabled(true);
-        webSettings.setAllowFileAccess(true);
-        webSettings.setAllowContentAccess(true);
-        webSettings.setLoadWithOverviewMode(true);
-        webSettings.setUseWideViewPort(true);
-        webSettings.setSupportZoom(true);
-        webSettings.setBuiltInZoomControls(false);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            webSettings.setMediaPlaybackRequiresUserGesture(false);
-        }
-
+        webView.removeJavascriptInterface("AndroidDictionary");
         webView.addJavascriptInterface(new DictionaryBridge(), "AndroidDictionary");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -99,7 +89,13 @@ public class MainActivity extends AppCompatActivity implements NovelTranslateSer
             }
         });
 
-        webView.loadUrl(APP_ENTRY_URL);
+        if (savedInstanceState != null && webView.restoreState(savedInstanceState) != null) {
+            Log.d(TAG, "WebView state restored from savedInstanceState");
+        } else if (!app.hasLoadedEntry()) {
+            webView.loadUrl(APP_ENTRY_URL);
+        } else {
+            Log.d(TAG, "Reusing in-process WebView at " + webView.getUrl());
+        }
         NovelTranslateService.setEventSink(this);
 
         tts = new TextToSpeech(this, new TextToSpeech.OnInitListener() {
@@ -129,10 +125,81 @@ public class MainActivity extends AppCompatActivity implements NovelTranslateSer
         });
     }
 
+    private void attachWebViewToActivity() {
+        FrameLayout container = findViewById(R.id.webViewContainer);
+        ViewGroup parent = (ViewGroup) webView.getParent();
+        if (parent != null && parent != container) {
+            parent.removeView(webView);
+        }
+        if (webView.getParent() == null) {
+            container.addView(webView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+            ));
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        if (webView != null) {
+            webView.saveState(outState);
+        }
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    protected void onPause() {
+        if (webView != null) {
+            webView.onPause();
+        }
+        super.onPause();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        AppKeepAliveService.stop(this);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        startKeepAliveIfNeeded();
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        startKeepAliveIfNeeded();
+    }
+
+    private void startKeepAliveIfNeeded() {
+        if (NovelTranslateService.isRunning()) return;
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 9912);
+            }
+        }
+        AppKeepAliveService.start(this);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView != null) {
+            webView.onResume();
+        }
         NovelTranslateService.setEventSink(this);
+        notifyAppResume();
+    }
+
+    private void notifyAppResume() {
+        if (webView == null) return;
+        webView.evaluateJavascript(
+                "try{if(window.onAppResume)window.onAppResume();}catch(e){console.error(e);}",
+                null
+        );
     }
 
     private void speakNow(String word) {
@@ -340,6 +407,16 @@ public class MainActivity extends AppCompatActivity implements NovelTranslateSer
     @Override
     protected void onDestroy() {
         NovelTranslateService.setEventSink(null);
+        if (webView != null) {
+            ViewGroup parent = (ViewGroup) webView.getParent();
+            if (parent != null) {
+                parent.removeView(webView);
+            }
+        }
+        if (isFinishing()) {
+            AppKeepAliveService.stop(this);
+            ((VideoEnglishApplication) getApplication()).clearWebView();
+        }
         super.onDestroy();
         bg.shutdownNow();
         if (dbHelper != null) {

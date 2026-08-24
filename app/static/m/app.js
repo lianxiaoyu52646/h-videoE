@@ -681,6 +681,7 @@
       pauseStudySession();
     }
     state.tab = tab;
+    try { sessionStorage.setItem('wp_tab', tab); } catch (_) {}
     $$('#tabNav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${tab}`));
     if (tab === 'read') renderRead();
@@ -2989,6 +2990,30 @@
 
   window.onNovelTranslateServiceEvent = handleNovelTranslateServiceEvent;
 
+  function syncNativeServiceState() {
+    const bridge = nativeBridge();
+    if (!bridge || typeof bridge.isNovelTranslateServiceRunning !== 'function') return;
+    if (!bridge.isNovelTranslateServiceRunning()) return;
+    const bt = state.bookTranslate;
+    if (bt.localRunning) {
+      if (state.tab === 'mine') updateBookTranslateUi();
+      return;
+    }
+    bt.localAbort = false;
+    bt.clientChain = false;
+    bt.localRunning = true;
+    bt.running = true;
+    if (!bt.phase || bt.phase === 'idle') bt.phase = 'translating';
+    novelLog('I', 'service.resumed', { source: 'native' });
+    startBookTranslatePoll();
+    refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
+    if (state.tab === 'mine') updateBookTranslateUi();
+  }
+
+  window.onAppResume = function onAppResume() {
+    syncNativeServiceState();
+  };
+
   function stopLocalBookTranslate() {
     novelLog('I', 'loop.stop_requested');
     state.bookTranslate.localAbort = true;
@@ -3140,8 +3165,13 @@
     } catch (e) { console.warn(e); }
     unlockTts();
     fetchAppVersion().catch(() => {});
+    syncNativeServiceState();
     refreshBookTranslateStatus({ ensureCatalog: false }).catch(() => {});
+    let savedTab = null;
+    try { savedTab = sessionStorage.getItem('wp_tab'); } catch (_) {}
+    const tabs = ['read', 'books', 'vocab', 'pk', 'mine'];
     if (location.hash === '#vocab-book') openVocabBook();
+    else if (savedTab && tabs.includes(savedTab)) setTab(savedTab);
     else setTab('read');
   }
   boot();
